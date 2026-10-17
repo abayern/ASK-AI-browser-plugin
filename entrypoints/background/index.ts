@@ -7,6 +7,7 @@
 import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
 
+import { createChatSession } from '../../core/chat/session';
 import { SettingsRepository } from '../../core/config/repository';
 import { ApiKeyStore } from '../../core/config/secret';
 import {
@@ -15,12 +16,14 @@ import {
   parseRequestMessage,
   type SenderDescriptor,
 } from '../../core/messaging/guard';
+import { CHAT_PORT_NAME } from '../../core/messaging/chat-protocol';
 import type {
   ConfigStatus,
   Envelope,
   MessageErrorCode,
   RequestMessage,
 } from '../../core/messaging/types';
+import { createOpenAiCompatibleAdapter } from '../../core/providers/openai-compatible';
 import { createWxtStorageStore } from '../../core/storage/wxt-store';
 
 function failure(code: MessageErrorCode, message: string): Envelope<never> {
@@ -103,5 +106,35 @@ export default defineBackground(() => {
   // 当前阶段还没有侧边栏/页内面板，这是用户进入设置的唯一入口。
   browser.action.onClicked.addListener(() => {
     void browser.runtime.openOptionsPage();
+  });
+
+  // ---- 聊天流式通道 ----
+  // 模型请求只在这里发起：Content Script 永远不直接请求服务商，
+  // 也拿不到 API Key。通道只对扩展页开放（阶段 4 的面板将以扩展 origin 的
+  // iframe 渲染，因此同样满足该条件）。
+  const adapter = createOpenAiCompatibleAdapter();
+
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== CHAT_PORT_NAME) return;
+
+    const origin = classifySender(
+      port.sender as SenderDescriptor | undefined,
+      browser.runtime.id,
+    );
+    if (origin !== 'extension-page') {
+      port.disconnect();
+      return;
+    }
+
+    const session = createChatSession(port, {
+      loadCredentials: async () => ({
+        settings: await settings.get(),
+        apiKey: await apiKeys.readApiKey(),
+      }),
+      adapter,
+    });
+
+    port.onMessage.addListener((message: unknown) => session.handleMessage(message));
+    port.onDisconnect.addListener(() => session.dispose());
   });
 });
