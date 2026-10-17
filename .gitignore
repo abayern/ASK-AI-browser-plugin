@@ -1,0 +1,25 @@
+node_modules/
+.output/
+.wxt/
+dist/
+stats.html
+
+# 包管理器在项目内的重定向目录（见 .npmrc）
+.pnpm-store/
+.pnpm-cache/
+.pnpm-state/
+
+# 本地环境变量：绝不提交任何凭证
+.env
+.env.*
+!.env.example
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# 测试与覆盖率产物
+coverage/
+*.log

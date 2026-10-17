@@ -1,0 +1,148 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  classifySender,
+  isAllowedFrom,
+  parseRequestMessage,
+} from '../../core/messaging/guard';
+import { REQUEST_TYPES } from '../../core/messaging/types';
+
+const EXTENSION_ID = 'abcdefghijklmnop';
+
+describe('classifySender', () => {
+  it('拒绝 id 不匹配的发送方（防止其它扩展冒用）', () => {
+    expect(classifySender({ id: 'other-extension' }, EXTENSION_ID)).toBeNull();
+    expect(classifySender(undefined, EXTENSION_ID)).toBeNull();
+    expect(classifySender({}, EXTENSION_ID)).toBeNull();
+  });
+
+  it('无 tab 视为扩展页', () => {
+    expect(classifySender({ id: EXTENSION_ID }, EXTENSION_ID)).toBe('extension-page');
+  });
+
+  it('带 tab 视为内容脚本', () => {
+    expect(classifySender({ id: EXTENSION_ID, tab: { id: 1 } }, EXTENSION_ID)).toBe(
+      'content-script',
+    );
+  });
+});
+
+describe('isAllowedFrom', () => {
+  it('内容脚本无权调用任何配置类消息', () => {
+    for (const type of REQUEST_TYPES) {
+      expect(isAllowedFrom(type, 'content-script'), type).toBe(false);
+    }
+  });
+
+  it('扩展页可以调用全部配置类消息', () => {
+    for (const type of REQUEST_TYPES) {
+      expect(isAllowedFrom(type, 'extension-page'), type).toBe(true);
+    }
+  });
+});
+
+describe('parseRequestMessage', () => {
+  it('接受合法的无载荷消息', () => {
+    expect(parseRequestMessage({ type: 'config/getStatus' }).ok).toBe(true);
+    expect(parseRequestMessage({ type: 'config/clearApiKey' }).ok).toBe(true);
+  });
+
+  it('拒绝非对象输入', () => {
+    for (const bad of [null, undefined, 'config/getStatus', 42, []]) {
+      expect(parseRequestMessage(bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it('拒绝未知消息类型', () => {
+    for (const type of ['unknown', '', 'config/deleteEverything', 'chat/send']) {
+      expect(parseRequestMessage({ type }).ok, type).toBe(false);
+    }
+  });
+
+  it('拒绝缺少或非法 payload', () => {
+    expect(parseRequestMessage({ type: 'config/saveApiKey' }).ok).toBe(false);
+    expect(parseRequestMessage({ type: 'config/saveApiKey', payload: {} }).ok).toBe(false);
+    expect(parseRequestMessage({ type: 'config/saveApiKey', payload: { apiKey: 42 } }).ok).toBe(
+      false,
+    );
+    expect(
+      parseRequestMessage({ type: 'config/saveProvider', payload: { provider: 'nope' } }).ok,
+    ).toBe(false);
+  });
+
+  it('拒绝超长 API Key', () => {
+    const result = parseRequestMessage({
+      type: 'config/saveApiKey',
+      payload: { apiKey: 'a'.repeat(3000) },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('只保留已知字段，夹带的额外属性不进入后续流程', () => {
+    const result = parseRequestMessage({
+      type: 'config/saveApiKey',
+      payload: { apiKey: 'sk-1234567890abcdef', extra: 'x', __proto__: { polluted: true } },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(Object.keys(result.value)).toEqual(['type', 'payload']);
+      expect(JSON.stringify(result.value)).not.toContain('extra');
+      expect(JSON.stringify(result.value)).not.toContain('polluted');
+    }
+  });
+
+  it('接受合法的 saveProvider 并过滤额外字段', () => {
+    const result = parseRequestMessage({
+      type: 'config/saveProvider',
+      payload: {
+        provider: {
+          providerName: ' DeepSeek ',
+          baseUrl: 'https://api.deepseek.com/v1',
+          model: 'deepseek-chat',
+          temperature: 0.5,
+          requestHeaders: { Authorization: 'evil' },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.value.type === 'config/saveProvider') {
+      const provider = result.value.payload.provider;
+      expect(provider.providerName).toBe('DeepSeek');
+      expect(provider.temperature).toBe(0.5);
+      // 请求头不能由消息指定
+      expect(JSON.stringify(result.value)).not.toContain('Authorization');
+    }
+  });
+
+  it('拒绝越界 temperature', () => {
+    for (const temperature of [-1, 5, Number.POSITIVE_INFINITY, 'hot']) {
+      const result = parseRequestMessage({
+        type: 'config/saveProvider',
+        payload: {
+          provider: { providerName: 'A', baseUrl: 'https://a.com/v1', model: 'm', temperature },
+        },
+      });
+      expect(result.ok, String(temperature)).toBe(false);
+    }
+  });
+
+  it('拒绝非布尔 allowInsecureLocalBaseUrl', () => {
+    const result = parseRequestMessage({
+      type: 'config/saveProvider',
+      payload: {
+        provider: { providerName: 'A', baseUrl: 'https://a.com/v1', model: 'm' },
+        allowInsecureLocalBaseUrl: 'yes',
+      },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('拒绝空字符串字段', () => {
+    const result = parseRequestMessage({
+      type: 'config/saveProvider',
+      payload: { provider: { providerName: '   ', baseUrl: 'https://a.com/v1', model: 'm' } },
+    });
+    expect(result.ok).toBe(false);
+  });
+});

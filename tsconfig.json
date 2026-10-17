@@ -1,0 +1,28 @@
+{
+  /*
+   * 继承 WXT 生成的 tsconfig：它提供 `@/` `~/` 等别名与浏览器扩展所需的
+   * 基础编译选项，保证 tsc 与 WXT/Vite 的解析规则一致。
+   * 这里只叠加本项目的严格要求。
+   */
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vite/client"],
+
+    /* 严格模式叠加：在类型检查阶段暴露问题，而不是留到运行时 */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "exclude": [
+    "node_modules",
+    ".output",
+    ".wxt",
+    "dist",
+    "coverage",
+    ".pnpm-store",
+    ".pnpm-cache",
+    ".pnpm-state"
+  ]
+}

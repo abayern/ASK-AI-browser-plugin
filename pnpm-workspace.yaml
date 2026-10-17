@@ -1,0 +1,22 @@
+# pnpm 11 默认阻止依赖执行安装脚本（供应链安全）。这里只放行确实需要
+# 构建步骤的包，其余保持默认拒绝。
+allowBuilds:
+  # Vite / WXT 依赖 esbuild，其 postinstall 用于校验并落地平台原生二进制。
+  esbuild: true
+
+# 使用扁平（hoisted）链接方式。
+# 原因：pnpm 默认的 symlink/junction 布局在部分 Windows 环境下无法被 Node 的
+# 模块解析正确跟随（realpath 不解开 junction），会出现「依赖存在却 MODULE_NOT_FOUND」。
+# hoisted 生成真实目录树，行为与 npm 一致，跨环境更稳。
+nodeLinker: hoisted
+
+# 依赖版本收敛（解决传递依赖的 peer 冲突）。
+overrides:
+  # @wxt-dev/module-react 允许 plugins-react 4/5/6，pnpm 会选到 6.x；
+  # 但 6.x 要求 Vite 8，与项目锁定的 Vite 7 冲突（vite/internal 子路径不存在）。
+  # 5.2.0 同时兼容 Vite 7 与 8，故统一收敛到 5.x。
+  '@vitejs/plugin-react': ^5.2.0
+
+# 允许安装的依赖版本（pnpm 的 minimumReleaseAge 会对新版本做延迟放行）。
+minimumReleaseAgeExclude:
+  - eslint@10.13.0
