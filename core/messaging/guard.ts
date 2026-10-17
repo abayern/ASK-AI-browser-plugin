@@ -31,17 +31,30 @@ const ORIGIN_POLICY: Record<RequestType, readonly MessageOrigin[]> = {
 /** 从 browser.runtime.MessageSender 中抽取判定所需的最小字段。 */
 export interface SenderDescriptor {
   id?: string | undefined;
-  tab?: unknown;
+  url?: string | undefined;
+  tab?: { url?: string | undefined } | undefined;
 }
+
+/**
+ * 扩展页面使用的 URL scheme。
+ * Chrome/Edge 为 chrome-extension://，Firefox 为 moz-extension://。
+ */
+const EXTENSION_SCHEME_PATTERN = /^(?:chrome|moz|safari-web)-extension:\/\//i;
 
 /**
  * 判定发送方身份。
  *
- * - `sender.id` 必须是本扩展的 id，否则一律拒绝（防止其它扩展冒用）。
- * - 有 `sender.tab` 说明来自某个标签页内的 Content Script；
- *   扩展页（设置页 / 侧边栏）不会带 tab。
+ * 关键点一：**不能用「有没有 tab」来区分**。
+ * 设置页以 `open_in_tab` 打开时，Chrome 同样会填充 `sender.tab`，
+ * 若据此判断就会把自家的扩展页误判成内容脚本而拒绝。
  *
- * 返回 null 表示身份不可信。
+ * 关键点二：`sender.id` 与 `sender.url` 都由浏览器填写，网页脚本无法伪造。
+ * 既然 `sender.id` 已经确认是**本扩展**，再看 `sender.url` 的 scheme
+ * 就能安全地区分「本扩展自己的页面」与「注入了本扩展内容脚本的网页」：
+ * - 扩展页（设置页 / 侧边栏）：`url` 为 chrome-extension:// 或 moz-extension://；
+ * - 内容脚本：`url` 是所在网页的地址（http/https/file）。
+ *
+ * 返回 null 表示身份不可信或无法判定，调用方必须拒绝。
  */
 export function classifySender(
   sender: SenderDescriptor | undefined,
@@ -49,7 +62,20 @@ export function classifySender(
 ): MessageOrigin | null {
   if (!sender) return null;
   if (typeof sender.id !== 'string' || sender.id !== extensionId) return null;
-  return sender.tab === undefined ? 'extension-page' : 'content-script';
+
+  const url = typeof sender.url === 'string' ? sender.url : '';
+  const tabUrl = typeof sender.tab?.url === 'string' ? sender.tab.url : '';
+
+  if (EXTENSION_SCHEME_PATTERN.test(url)) return 'extension-page';
+
+  // 兜底：个别情况下 sender.url 可能缺失，但标签页地址仍是扩展页。
+  // 扩展 scheme 无法被网页伪造，因此这里放宽不会引入冒充风险。
+  if (EXTENSION_SCHEME_PATTERN.test(tabUrl)) return 'extension-page';
+
+  if (sender.tab !== undefined) return 'content-script';
+
+  // 既非扩展页、又无 tab：无法判定，按不可信处理。
+  return null;
 }
 
 /** 该来源是否可以发送该类型的消息。 */

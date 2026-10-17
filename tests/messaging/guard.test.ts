@@ -8,22 +8,65 @@ import {
 import { REQUEST_TYPES } from '../../core/messaging/types';
 
 const EXTENSION_ID = 'abcdefghijklmnop';
+const OPTIONS_URL = 'chrome-extension://abcdefghijklmnop/options.html';
+const FIREFOX_OPTIONS_URL = 'moz-extension://2f9a1c/options.html';
 
 describe('classifySender', () => {
   it('拒绝 id 不匹配的发送方（防止其它扩展冒用）', () => {
-    expect(classifySender({ id: 'other-extension' }, EXTENSION_ID)).toBeNull();
+    expect(classifySender({ id: 'other-extension', url: OPTIONS_URL }, EXTENSION_ID)).toBeNull();
     expect(classifySender(undefined, EXTENSION_ID)).toBeNull();
     expect(classifySender({}, EXTENSION_ID)).toBeNull();
   });
 
-  it('无 tab 视为扩展页', () => {
-    expect(classifySender({ id: EXTENSION_ID }, EXTENSION_ID)).toBe('extension-page');
+  it('回归：以 open_in_tab 打开时扩展页也带 tab，仍必须判定为扩展页', () => {
+    // 曾经的实现用「有没有 tab」判断来源，导致设置页把自己当成内容脚本而拒绝。
+    expect(
+      classifySender({ id: EXTENSION_ID, url: OPTIONS_URL, tab: {} }, EXTENSION_ID),
+    ).toBe('extension-page');
   });
 
-  it('带 tab 视为内容脚本', () => {
-    expect(classifySender({ id: EXTENSION_ID, tab: { id: 1 } }, EXTENSION_ID)).toBe(
-      'content-script',
+  it('不带 tab 的扩展页同样判定为扩展页', () => {
+    expect(classifySender({ id: EXTENSION_ID, url: OPTIONS_URL }, EXTENSION_ID)).toBe(
+      'extension-page',
     );
+  });
+
+  it('sender.url 缺失时用 tab.url 兜底判定扩展页', () => {
+    expect(classifySender({ id: EXTENSION_ID, tab: { url: OPTIONS_URL } }, EXTENSION_ID)).toBe(
+      'extension-page',
+    );
+  });
+
+  it('Firefox 的 moz-extension 页面也判定为扩展页', () => {
+    expect(
+      classifySender(
+        { id: EXTENSION_ID, url: FIREFOX_OPTIONS_URL, tab: {} },
+        EXTENSION_ID,
+      ),
+    ).toBe('extension-page');
+  });
+
+  it('网页中的内容脚本判定为 content-script', () => {
+    expect(
+      classifySender(
+        { id: EXTENSION_ID, url: 'https://example.com/page', tab: { url: 'https://example.com/page' } },
+        EXTENSION_ID,
+      ),
+    ).toBe('content-script');
+  });
+
+  it('网页地址里夹带扩展 origin 字样也无法冒充扩展页', () => {
+    expect(
+      classifySender(
+        { id: EXTENSION_ID, url: `https://evil.test/${OPTIONS_URL}`, tab: {} },
+        EXTENSION_ID,
+      ),
+    ).toBe('content-script');
+  });
+
+  it('既非扩展页又无 tab 的来源按不可信拒绝', () => {
+    expect(classifySender({ id: EXTENSION_ID, url: 'https://example.com/' }, EXTENSION_ID)).toBeNull();
+    expect(classifySender({ id: EXTENSION_ID }, EXTENSION_ID)).toBeNull();
   });
 });
 
