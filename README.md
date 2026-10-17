@@ -3,9 +3,9 @@
 选中网页文字后，向你**自己配置**的 AI 服务商提问。API Key 只存在本地扩展存储中，
 请求由扩展后台直接发往你配置的服务商，不经过本产品自有后端。
 
-> 当前进度：**阶段 0-1 已完成并全部验证通过**（项目骨架、配置 Schema、存储封装、消息通信层）。
+> 当前进度：**阶段 0-2 已完成并全部验证通过**（项目骨架、配置 Schema、存储封装、消息通信层、设置页）。
 > Provider 适配器、流式输出、划词悬浮按钮、侧边栏 UI、历史会话、长期记忆尚未开始。
-> **目前还没有任何用户界面**，`config/*` 消息只有 background 侧实现。
+> 目前有**一个**可用界面：设置页（扩展工具栏图标或「扩展选项」进入）。
 
 ## 技术栈
 
@@ -29,12 +29,21 @@ core/                       与 UI 解耦的业务核心（无 React 依赖，�
   messaging/
     types.ts                消息协议与响应类型（结构上不含 Key 明文）
     guard.ts                来源判定 + 载荷校验 + 来源白名单
+    envelope.ts             响应解包（纯函数，可单测）
+    client.ts               UI 侧消息客户端（不含密钥逻辑）
   storage/
     types.ts                KeyValueStore 端口
     wxt-store.ts            浏览器 storage 适配器（仅扩展上下文用）
   shared/                   通用 limits 与 Result 类型
+components/settings/        UI 组件（只做展示，不含安全判定）
+  Section.tsx               区块容器（页边标签 + 细线）
+  ProviderForm.tsx          服务商与模型配置表单
+  ApiKeyPanel.tsx           API Key 管理（脱敏展示 / 替换 / 删除）
+  PrivacyNotice.tsx         隐私与数据边界说明
 entrypoints/
   background/index.ts       唯一可信上下文：消息分发、配置读写
+  options/                  设置页（React，独立标签页打开）
+    index.html / main.tsx / App.tsx / style.css
 tests/                      Vitest 单元测试
 ```
 
@@ -52,7 +61,7 @@ pnpm build:firefox    # 构建 Firefox
 pnpm zip              # 打包
 ```
 
-## 安全设计要点（阶段 1 已落地）
+## 安全设计要点（阶段 1-2 已落地）
 
 1. **Key 与配置物理分离**：`secret.apiKey.v1` 与 `settings.v1` 是两个独立存储键，
    删 Key 不影响配置，清配置也不影响 Key。
@@ -70,20 +79,22 @@ pnpm zip              # 打包
 9. **Firefox 隐私声明**：`browser_specific_settings.gecko.data_collection_permissions`
    如实声明 `required: ["websiteContent"]`（选中文字会发往用户自己配置的服务商），
    不声明任何遥测类目。
+10. **设置页从不回填 Key**：页面拿不到明文，因此「重新打开设置页自动填充」
+    在结构上不可能发生；保存成功后立即清空输入框与内存中的草稿。
 
 ## 验证状态（已实际执行）
 
 | 项目 | 结果 | 细节 |
 |---|---|---|
-| TypeScript 类型检查 | ✅ 通过 | `tsc --noEmit`，程序含 21 个文件（19 个项目源文件 + 2 个配置），0 错误 |
-| ESLint | ✅ 通过 | 22 个文件，0 error / 0 warning |
-| 单元测试 | ✅ 通过 | **5 个测试文件 / 64 个用例全部通过** |
-| 构建 Chrome | ✅ 通过 | `.output/chrome-mv3/`，`permissions: ["storage"]` |
-| 构建 Firefox | ✅ 通过 | `.output/firefox-mv3/`，含 `data_collection_permissions` |
+| TypeScript 类型检查 | ✅ 通过 | `tsc --noEmit`，0 错误 |
+| ESLint | ✅ 通过 | 0 error / 0 warning |
+| 单元测试 | ✅ 通过 | **6 个测试文件 / 72 个用例全部通过** |
+| 构建 Chrome | ✅ 通过 | `.output/chrome-mv3/`，含 `options.html`，`permissions: ["storage"]` |
+| 构建 Firefox | ✅ 通过 | `.output/firefox-mv3/`，含 `options.html` 与 `data_collection_permissions` |
 | 构建 Edge | ✅ 复用产物 | Edge 为 Chromium 内核，直接使用 `chrome-mv3` 产物（**未在 Edge 上实机运行**） |
 
 构建产物已核对：manifest 为无 BOM 的合法 UTF-8，中文名称/描述正确，
-`permissions` 仅含 `storage`。
+`permissions` 仅含 `storage`，且**没有任何 host_permissions**。
 
 ### 测试覆盖的用例范围
 
@@ -95,6 +106,8 @@ pnpm zip              # 打包
   存储抛错不崩溃
 - 消息层：来源伪造拒绝、内容脚本无权配置操作、未知类型/畸形载荷/超长载荷拒绝、
   额外字段过滤（含 `__proto__` 注入）
+- 响应解包：成功取 data、失败抛 code、畸形响应按传输错误、缺 data 不算成功、
+  非字符串 code 降级不渗入界面
 
 ## 环境相关的工程决策（重要）
 
@@ -115,9 +128,13 @@ pnpm zip              # 打包
 
 ## 已知限制
 
-- 阶段 1 尚无任何 UI，用户无法在界面上配置 Key（阶段 2 实现设置页）。
+- 设置页目前只能配置「服务商 / API Key / 隐私说明」。任务书要求的
+  「清空历史会话」「关闭长期记忆」「删除全部长期记忆」三项操作，
+  要等阶段 5-6 真正有对应数据后才能提供——不会先放一个点了没反应的按钮。
+- 设置页尚未在真实浏览器中目视验证：构建产物正确，但配色的实际观感、
+  深色模式与窄屏表现需要你在 Chrome/Edge/Firefox 里加载 `.output/*` 亲自看一眼。
 - Chrome / Edge 的 `sidePanel` 与 Firefox 的 `sidebar_action` 是**两套不兼容 API**；
   且 Chrome `sidePanel.open()` 要求用户手势。阶段 4 将按既定方案以「页内 Shadow DOM
   面板为主、侧边栏为辅」并通过适配层处理。
-- 尚未在真实浏览器中做端到端手测（无头构建已验证，运行时行为待阶段 4 后验证）。
+- 工具栏图标当前只用于打开设置页；阶段 4 会重新设计它的行为。
 - 未表态「API Key 绝对安全」：浏览器本身、恶意扩展或被篡改的扩展代码仍可能接触凭证。

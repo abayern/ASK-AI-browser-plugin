@@ -22,6 +22,11 @@ export default defineConfig({
     name: '划词问 AI',
     description: '划词选中网页文字，向你自己配置的 AI 服务商提问。API Key 只保存在本地。',
     permissions: ['storage'],
+    // 未设置 default_popup，因此点击图标会触发 action.onClicked，
+    // 由 background 打开设置页。
+    action: {
+      default_title: '划词问 AI · 设置',
+    },
     // Firefox 需要固定扩展 id 才能在开发模式下保留 storage 数据。
     ...(browser === 'firefox'
       ? {

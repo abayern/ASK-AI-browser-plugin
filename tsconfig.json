@@ -8,6 +8,9 @@
   "compilerOptions": {
     "types": ["node", "vite/client"],
 
+    /* WXT 生成的基座 tsconfig 未声明 JSX，这里显式启用 React 17+ 的自动运行时 */
+    "jsx": "react-jsx",
+
     /* 严格模式叠加：在类型检查阶段暴露问题，而不是留到运行时 */
     "noUnusedLocals": true,
     "noUnusedParameters": true,

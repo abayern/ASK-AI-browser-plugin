@@ -98,4 +98,10 @@ export default defineBackground(() => {
     // 返回 true：告知浏览器将异步调用 sendResponse。
     return true;
   });
+
+  // 点击工具栏图标直接打开设置页。
+  // 当前阶段还没有侧边栏/页内面板，这是用户进入设置的唯一入口。
+  browser.action.onClicked.addListener(() => {
+    void browser.runtime.openOptionsPage();
+  });
 });
