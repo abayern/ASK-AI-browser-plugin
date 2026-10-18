@@ -71,13 +71,20 @@ describe('classifySender', () => {
 });
 
 describe('isAllowedFrom', () => {
-  it('内容脚本无权调用任何配置类消息', () => {
-    for (const type of REQUEST_TYPES) {
+  it('内容脚本对全部配置类消息一律无权', () => {
+    const configTypes = REQUEST_TYPES.filter((type) => type !== 'selection/set');
+    expect(configTypes.length).toBeGreaterThan(0);
+
+    for (const type of configTypes) {
       expect(isAllowedFrom(type, 'content-script'), type).toBe(false);
     }
   });
 
-  it('扩展页可以调用全部配置类消息', () => {
+  it('内容脚本只被允许提交选区这一件事', () => {
+    expect(isAllowedFrom('selection/set', 'content-script')).toBe(true);
+  });
+
+  it('扩展页可以调用全部消息类型', () => {
     for (const type of REQUEST_TYPES) {
       expect(isAllowedFrom(type, 'extension-page'), type).toBe(true);
     }
@@ -88,6 +95,42 @@ describe('parseRequestMessage', () => {
   it('接受合法的无载荷消息', () => {
     expect(parseRequestMessage({ type: 'config/getStatus' }).ok).toBe(true);
     expect(parseRequestMessage({ type: 'config/clearApiKey' }).ok).toBe(true);
+  });
+
+  it('接受合法的 selection/set 并去掉首尾空白', () => {
+    const result = parseRequestMessage({ type: 'selection/set', payload: { text: '  一段文字  ' } });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.value.type === 'selection/set') {
+      expect(result.value.payload.text).toBe('一段文字');
+    }
+  });
+
+  it('拒绝空、非字符串或超长的选区', () => {
+    const badPayloads: unknown[] = [
+      {},
+      { text: '' },
+      { text: '   ' },
+      { text: 42 },
+      { text: null },
+      { text: 'a'.repeat(30_000) },
+    ];
+    for (const payload of badPayloads) {
+      expect(
+        parseRequestMessage({ type: 'selection/set', payload }).ok,
+        JSON.stringify(payload).slice(0, 24),
+      ).toBe(false);
+    }
+  });
+
+  it('selection/set 不接受夹带的额外字段', () => {
+    const result = parseRequestMessage({
+      type: 'selection/set',
+      payload: { text: '文字', tabId: 999, url: 'https://evil.test' },
+    });
+    expect(result.ok).toBe(true);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('evil.test');
+    expect(serialized).not.toContain('tabId');
   });
 
   it('拒绝非对象输入', () => {

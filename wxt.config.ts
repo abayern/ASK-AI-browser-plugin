@@ -4,13 +4,14 @@ import { defineConfig } from 'wxt';
  * WXT 构建配置。
  *
  * 权限说明（最小权限原则）：
- * - `storage`：唯一必需的权限，用于保存配置与 API Key。
- * - `activeTab` / `scripting` 及可选主机权限会在「阶段 4：划词悬浮按钮」
- *   真正需要时再加入，避免在还没有功能时先扩大攻击面。
+ * - `storage`：保存配置与 API Key。
+ * - `activeTab`：用户点击工具栏图标时，临时获得**当前标签页**的访问权，
+ *   用于注入划词脚本。它不会在安装时授予任何站点访问权。
+ * - `scripting`：执行上面这次注入。
  *
  * 明确不申请：
- * - `<all_urls>` 之类的宽泛主机权限；
- * - `tabs`（不需要读取标签页标题或地址）。
+ * - `<all_urls>` 之类的宽泛主机权限：划词只在用户点击后于当前页生效；
+ * - `tabs`：不需要读取标签页标题或地址。
  */
 export default defineConfig({
   // 关闭自动导入：所有 API 显式 import，便于审查与类型推断。
@@ -21,11 +22,9 @@ export default defineConfig({
   manifest: ({ browser }) => ({
     name: '划词问 AI',
     description: '划词选中网页文字，向你自己配置的 AI 服务商提问。API Key 只保存在本地。',
-    permissions: ['storage'],
-    // 未设置 default_popup，因此点击图标会触发 action.onClicked，
-    // 由 background 打开设置页。
+    permissions: ['storage', 'scripting', 'activeTab'],
     action: {
-      default_title: '划词问 AI · 设置',
+      default_title: '划词问 AI',
     },
     // Firefox 需要固定扩展 id 才能在开发模式下保留 storage 数据。
     ...(browser === 'firefox'

@@ -16,6 +16,7 @@ export const REQUEST_TYPES = [
   'config/saveProvider',
   'config/saveApiKey',
   'config/clearApiKey',
+  'selection/set',
 ] as const;
 
 export type RequestType = (typeof REQUEST_TYPES)[number];
@@ -45,11 +46,23 @@ export interface ClearApiKeyRequest {
   type: 'config/clearApiKey';
 }
 
+/**
+ * Content Script 把选中文字交给后台暂存。
+ *
+ * 这是**唯一**允许内容脚本调用的消息：它只能写入一段受长度限制的文本，
+ * 不能读写配置、不能指定请求地址、也接触不到 API Key。
+ */
+export interface SelectionSetRequest {
+  type: 'selection/set';
+  payload: { text: string };
+}
+
 export type RequestMessage =
   | GetStatusRequest
   | SaveProviderRequest
   | SaveApiKeyRequest
-  | ClearApiKeyRequest;
+  | ClearApiKeyRequest
+  | SelectionSetRequest;
 
 /**
  * 设置状态快照——这是 UI 能拿到的全部配置信息。

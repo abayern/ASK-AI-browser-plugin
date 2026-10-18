@@ -26,6 +26,8 @@ const ORIGIN_POLICY: Record<RequestType, readonly MessageOrigin[]> = {
   'config/saveProvider': ['extension-page'],
   'config/saveApiKey': ['extension-page'],
   'config/clearApiKey': ['extension-page'],
+  // 唯一对内容脚本开放的消息：只写一段受限文本，碰不到配置与 Key。
+  'selection/set': ['content-script', 'extension-page'],
 };
 
 /** 从 browser.runtime.MessageSender 中抽取判定所需的最小字段。 */
@@ -131,6 +133,21 @@ export function parseRequestMessage(
 
     case 'config/clearApiKey':
       return { ok: true, value: { type } };
+
+    case 'selection/set': {
+      const payload = isRecord(raw.payload) ? raw.payload : null;
+      if (!payload) return reject('缺少 payload。');
+
+      const text = payload.text;
+      if (typeof text !== 'string') return reject('text 必须是字符串。');
+      const trimmed = text.trim();
+      if (trimmed.length === 0) return reject('选中文字不能为空。');
+      if (trimmed.length > LIMITS.selectionMaxChars) {
+        return reject(`选中文字不能超过 ${LIMITS.selectionMaxChars} 个字符。`);
+      }
+
+      return { ok: true, value: { type, payload: { text: trimmed } } };
+    }
 
     case 'config/saveApiKey': {
       const payload = isRecord(raw.payload) ? raw.payload : null;

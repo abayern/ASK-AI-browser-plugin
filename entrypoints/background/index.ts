@@ -24,6 +24,7 @@ import type {
   RequestMessage,
 } from '../../core/messaging/types';
 import { createOpenAiCompatibleAdapter } from '../../core/providers/openai-compatible';
+import { PendingSelectionStore, PENDING_SELECTION_TTL_MS } from '../../core/selection/pending';
 import { createWxtStorageStore } from '../../core/storage/wxt-store';
 
 function failure(code: MessageErrorCode, message: string): Envelope<never> {
@@ -34,6 +35,15 @@ export default defineBackground(() => {
   const store = createWxtStorageStore();
   const settings = new SettingsRepository(store);
   const apiKeys = new ApiKeyStore(store);
+
+  /**
+   * 暂存各标签页最新选区，供扩展 origin 的面板取用。
+   * 刻意只放在内存里：这些是网页正文片段，没有落盘的必要。
+   */
+  const pendingSelections = new PendingSelectionStore();
+
+  // 定期清掉过期项，避免用户长期不打开面板时内存里堆着网页正文。
+  setInterval(() => pendingSelections.prune(), PENDING_SELECTION_TTL_MS);
 
   /** 组装给 UI 看的状态快照：只有脱敏后的 Key 摘要，没有明文。 */
   async function readStatus(): Promise<ConfigStatus> {
@@ -46,7 +56,10 @@ export default defineBackground(() => {
     };
   }
 
-  async function handle(message: RequestMessage): Promise<Envelope<unknown>> {
+  async function handle(
+    message: RequestMessage,
+    tabId: number | undefined,
+  ): Promise<Envelope<unknown>> {
     switch (message.type) {
       case 'config/getStatus':
         return { ok: true, data: await readStatus() };
@@ -70,6 +83,15 @@ export default defineBackground(() => {
         await apiKeys.clearApiKey();
         return { ok: true, data: await readStatus() };
       }
+
+      case 'selection/set': {
+        // 没有 tabId 说明不是来自某个标签页，无法归属，直接拒绝。
+        if (typeof tabId !== 'number') {
+          return failure('unauthorized_origin', '无法确定消息所属的标签页。');
+        }
+        pendingSelections.set(tabId, message.payload.text);
+        return { ok: true, data: { stored: true, length: message.payload.text.length } };
+      }
     }
   }
 
@@ -88,8 +110,12 @@ export default defineBackground(() => {
       return failure('unauthorized_origin', '当前来源无权执行该操作。');
     }
 
+    const tabId = sender?.tab && typeof sender.tab === 'object'
+      ? (sender.tab as { id?: number }).id
+      : undefined;
+
     try {
-      return await handle(parsed.value);
+      return await handle(parsed.value, tabId);
     } catch {
       // 刻意不打印原始异常：错误对象可能包含请求细节甚至凭证。
       return failure('internal_error', '扩展内部错误，请稍后重试。');
@@ -100,12 +126,6 @@ export default defineBackground(() => {
     void dispatch(raw, sender as SenderDescriptor).then(sendResponse);
     // 返回 true：告知浏览器将异步调用 sendResponse。
     return true;
-  });
-
-  // 点击工具栏图标直接打开设置页。
-  // 当前阶段还没有侧边栏/页内面板，这是用户进入设置的唯一入口。
-  browser.action.onClicked.addListener(() => {
-    void browser.runtime.openOptionsPage();
   });
 
   // ---- 聊天流式通道 ----
