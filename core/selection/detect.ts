@@ -96,7 +96,7 @@ export function isEligibleSelection(candidate: SelectionCandidate): boolean {
 /**
  * 计算悬浮按钮的位置。
  *
- * 优先放在选区上方；上方空间不足时落到下方。
+ * 优先放在选区**下方**；下方空间不足时翻到上方。
  * 最终结果会被收拢到视口内，避免在页面边缘被裁掉一半。
  */
 export function computeButtonPosition(
@@ -111,8 +111,11 @@ export function computeButtonPosition(
   const aboveTop = anchor.top - button.height - gap;
   const belowTop = anchor.bottom + gap;
 
-  const placement: 'above' | 'below' = aboveTop >= gap ? 'above' : 'below';
-  const rawTop = placement === 'above' ? aboveTop : belowTop;
+  // 默认放在选区**下方**：视线顺着文字往下走，按钮出现在下方更跟手，
+  // 也不会挡住刚读完的那一行。只有下方确实放不下时才翻到上方。
+  const placement: 'above' | 'below' =
+    belowTop + button.height <= viewport.height - gap ? 'below' : 'above';
+  const rawTop = placement === 'below' ? belowTop : aboveTop;
 
   const maxLeft = Math.max(gap, viewport.width - button.width - gap);
   const maxTop = Math.max(gap, viewport.height - button.height - gap);

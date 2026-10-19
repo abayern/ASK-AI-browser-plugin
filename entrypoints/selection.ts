@@ -45,39 +45,96 @@ export default defineUnlistedScript(() => {
 
   const shadow = host.attachShadow({ mode: 'closed' });
 
+  // 用样式表而不是内联 style：hover、过渡、键盘焦点环这些伪类与状态
+  // 在内联样式里写不出来，维护起来也更糟。
+  const style = document.createElement('style');
+  style.textContent = `
+    .ask-btn {
+      position: fixed;
+      display: none;
+      align-items: center;
+      gap: 7px;
+      height: ${BUTTON_HEIGHT}px;
+      padding: 0 13px 0 11px;
+      border: 0;
+      border-radius: 8px;
+      background: #15181c;
+      color: #fafaf8;
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 12.5px;
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      cursor: pointer;
+      pointer-events: auto;
+      box-shadow: 0 8px 24px rgba(15, 18, 22, 0.3), 0 1px 3px rgba(15, 18, 22, 0.2);
+      transition: background-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+    }
+
+    .ask-btn:hover {
+      background: #0b0e11;
+      transform: translateY(-1px);
+      box-shadow: 0 12px 28px rgba(15, 18, 22, 0.36), 0 1px 3px rgba(15, 18, 22, 0.22);
+    }
+
+    .ask-btn:active {
+      transform: translateY(0);
+      box-shadow: 0 6px 18px rgba(15, 18, 22, 0.3);
+    }
+
+    .ask-btn:focus-visible {
+      outline: 2px solid #8ab4f8;
+      outline-offset: 2px;
+    }
+
+    .ask-btn:disabled {
+      cursor: default;
+      opacity: 0.75;
+    }
+
+    /* 左侧的强调点：让按钮看起来是「本产品」的，而不是网页自带的控件 */
+    .ask-dot {
+      flex: none;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #8ab4f8;
+      box-shadow: 0 0 0 3px rgba(138, 180, 248, 0.2);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ask-btn {
+        transition: none;
+      }
+      .ask-btn:hover {
+        transform: none;
+      }
+    }
+  `;
+
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = '问问 AI';
-  button.setAttribute(
-    'style',
-    [
-      'position: fixed',
-      'display: none',
-      'align-items: center',
-      'gap: 6px',
-      'height: 34px',
-      'padding: 0 14px',
-      'border: 1px solid #2b6cb0',
-      'border-radius: 4px',
-      'background: #2b6cb0',
-      'color: #fff',
-      'font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif',
-      'font-size: 13px',
-      'font-weight: 600',
-      'line-height: 1',
-      'cursor: pointer',
-      'pointer-events: auto',
-      'box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18)',
-      'transition: background-color 120ms ease, opacity 120ms ease',
-    ].join(';'),
-  );
+  button.className = 'ask-btn';
 
-  shadow.appendChild(button);
+  const dot = document.createElement('span');
+  dot.className = 'ask-dot';
+
+  const label = document.createElement('span');
+  label.textContent = '问问 AI';
+
+  button.append(dot, label);
+
+  shadow.append(style, button);
   document.documentElement.appendChild(host);
 
   // ---- 状态 ----
   let currentText = '';
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function setLabel(text: string): void {
+    label.textContent = text;
+  }
 
   function hide(): void {
     button.style.display = 'none';
@@ -86,16 +143,29 @@ export default defineUnlistedScript(() => {
 
   function show(text: string, anchorRect: DOMRect): void {
     currentText = text;
+    setLabel('问问 AI');
+
+    // 先显示出来才能量到真实尺寸；字体、语言、缩放都会影响宽度，
+    // 用实测值定位比写死常量更稳，否则按钮不会真正居中。
+    button.style.display = 'flex';
+    const measured = button.getBoundingClientRect();
+
     const placement = computeButtonPosition(
-      { left: anchorRect.left, top: anchorRect.top, right: anchorRect.right, bottom: anchorRect.bottom },
+      {
+        left: anchorRect.left,
+        top: anchorRect.top,
+        right: anchorRect.right,
+        bottom: anchorRect.bottom,
+      },
       { width: window.innerWidth, height: window.innerHeight },
-      { width: BUTTON_WIDTH, height: BUTTON_HEIGHT },
+      {
+        width: measured.width > 0 ? measured.width : BUTTON_WIDTH,
+        height: measured.height > 0 ? measured.height : BUTTON_HEIGHT,
+      },
     );
 
     button.style.left = `${placement.left}px`;
     button.style.top = `${placement.top}px`;
-    button.style.display = 'flex';
-    button.textContent = '问问 AI';
   }
 
   /** 读取当前选区；不满足条件时返回 null。 */
@@ -203,7 +273,7 @@ export default defineUnlistedScript(() => {
         openPanel();
       })
       .catch(() => {
-        button.textContent = '未能记录';
+        setLabel('未能记录');
         setTimeout(() => {
           hide();
         }, 1200);

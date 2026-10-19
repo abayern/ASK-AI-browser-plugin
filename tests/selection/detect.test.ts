@@ -96,18 +96,29 @@ describe('computeButtonPosition', () => {
   const viewport = { width: 1000, height: 800 };
   const button = { width: 96, height: 32 };
 
-  it('上方空间充足时放在选区上方并水平居中', () => {
+  it('默认放在选区下方并水平居中', () => {
     const placement = computeButtonPosition(
       { left: 400, top: 300, right: 500, bottom: 320 },
       viewport,
       button,
     );
-    expect(placement.placement).toBe('above');
-    expect(placement.top).toBe(300 - 32 - BUTTON_GAP_PX);
+    expect(placement.placement).toBe('below');
+    expect(placement.top).toBe(320 + BUTTON_GAP_PX);
     expect(placement.left).toBe(450 - 48);
   });
 
-  it('上方空间不足时落到选区下方', () => {
+  it('下方空间不足时翻到选区上方', () => {
+    // 选区贴近视口底部
+    const placement = computeButtonPosition(
+      { left: 400, top: 760, right: 500, bottom: 780 },
+      viewport,
+      button,
+    );
+    expect(placement.placement).toBe('above');
+    expect(placement.top).toBe(760 - 32 - BUTTON_GAP_PX);
+  });
+
+  it('选区在页面顶部时仍放在下方（下方空间充足）', () => {
     const placement = computeButtonPosition(
       { left: 400, top: 4, right: 500, bottom: 20 },
       viewport,
