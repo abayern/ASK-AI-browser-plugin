@@ -288,6 +288,47 @@ body {
   background: var(--danger-wash);
 }
 
+/*
+ * 可点击的提示条：整条都是按钮，不只是那三个字。
+ * 点击目标更大，也避免用户以为「去设置 →」只是说明文字。
+ */
+.notice--action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  border-left: 3px solid var(--danger);
+  color: var(--danger);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.notice--action:hover {
+  background: #f6e0dc;
+}
+
+.notice--action:active {
+  background: #f0d2cd;
+}
+
+.notice--action:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: -2px;
+}
+
+/* 「去设置 →」用下划线 + 箭头明确表示可以点 */
+.notice__cta {
+  flex: none;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
 /* ---------- 输入区 ---------- */
 
 .composer {

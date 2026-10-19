@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { browser } from 'wxt/browser';
 
 import { MarkdownView } from '../../components/panel/MarkdownView';
 import { startChatStream, type ChatStream } from '../../core/messaging/chat-client';
@@ -24,39 +25,63 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** 缺少配置时把提示做成可点击的入口，而不是让用户自己找设置页。 */
+  const [needsConfig, setNeedsConfig] = useState(false);
 
   const streamRef = useRef<ChatStream | null>(null);
   const bufferRef = useRef('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // 载入选区与当前模型信息
+  // 载入选区（只需一次）
   useEffect(() => {
     let active = true;
 
-    async function load() {
+    async function loadSelection() {
       try {
         const selected = await configClient.getSelection();
         if (active) setSelection(selected.selection);
       } catch {
         if (active) setSelection(null);
       }
+    }
 
+    void loadSelection();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // 读取配置状态。
+  // 面板重新获得焦点时再读一次：用户去设置页填完 Key 切回来，提示会自动消失。
+  useEffect(() => {
+    let active = true;
+
+    async function refreshStatus() {
       try {
         const status = await configClient.getStatus();
-        if (active) {
-          setModelLabel(
-            `${status.provider.providerName} · ${status.provider.model}` +
-              (status.apiKey.configured ? '' : '（未配置 Key）'),
-          );
-        }
+        if (!active) return;
+        setModelLabel(`${status.provider.providerName} · ${status.provider.model}`);
+        setNeedsConfig(!status.apiKey.configured);
       } catch {
-        // 模型信息只是辅助展示，取不到就不显示。
+        // 配置状态只是辅助展示，取不到就不改动现有状态。
       }
     }
 
-    void load();
+    void refreshStatus();
+
+    // 用户去设置页填完再切回来时，两种事件都可能先到：
+    // focus 在面板重新获得焦点时触发，visibilitychange 在标签页重新可见时触发。
+    function onVisible() {
+      if (document.visibilityState === 'visible') void refreshStatus();
+    }
+
+    window.addEventListener('focus', refreshStatus);
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       active = false;
+      window.removeEventListener('focus', refreshStatus);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
@@ -147,6 +172,14 @@ export default function App() {
               return;
             }
             finish(bufferRef.current);
+
+            // 未配置属于「去设置一下」而不是错误，改由可点击的提示条呈现，
+            // 避免同一个意思在界面上出现两次。
+            if (chatError.code === 'not_configured') {
+              setNeedsConfig(true);
+              return;
+            }
+
             setError(chatError.message);
           },
         },
@@ -157,6 +190,11 @@ export default function App() {
 
   function handleStop() {
     streamRef.current?.abort();
+  }
+
+  /** 打开设置页。面板是扩展页，因此可以直接调用。 */
+  function openSettings() {
+    void browser.runtime.openOptionsPage();
   }
 
   async function handleCopy() {
@@ -249,6 +287,13 @@ export default function App() {
 
         {busy && streamText === '' ? <p className="thinking">正在生成…</p> : null}
       </div>
+
+      {needsConfig ? (
+        <button type="button" className="notice notice--action" onClick={openSettings}>
+          <span>尚未完成配置，需填写服务商与 API Key。</span>
+          <span className="notice__cta">去设置 →</span>
+        </button>
+      ) : null}
 
       {error ? (
         <p className="notice notice--error" role="alert">
