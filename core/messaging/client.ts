@@ -50,4 +50,9 @@ export const configClient = {
   clearApiKey(): Promise<ConfigStatus> {
     return request<ConfigStatus>({ type: 'config/clearApiKey' });
   },
+
+  /** 面板启动时取回当前标签页暂存的选区。 */
+  getSelection(): Promise<{ selection: string | null }> {
+    return request<{ selection: string | null }>({ type: 'panel/getSelection' });
+  },
 };

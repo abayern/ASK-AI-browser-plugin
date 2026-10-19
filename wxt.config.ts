@@ -26,6 +26,14 @@ export default defineConfig({
     action: {
       default_title: '划词问 AI',
     },
+    // 面板以扩展 origin 的 iframe 注入网页，因此必须声明为可被网页嵌入。
+    // 注意：这一项只让该文件可被加载，**不授予任何站点权限**。
+    web_accessible_resources: [
+      {
+        resources: ['panel.html'],
+        matches: ['<all_urls>'],
+      },
+    ],
     // Firefox 需要固定扩展 id 才能在开发模式下保留 storage 数据。
     ...(browser === 'firefox'
       ? {

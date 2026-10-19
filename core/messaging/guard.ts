@@ -28,6 +28,8 @@ const ORIGIN_POLICY: Record<RequestType, readonly MessageOrigin[]> = {
   'config/clearApiKey': ['extension-page'],
   // 唯一对内容脚本开放的消息：只写一段受限文本，碰不到配置与 Key。
   'selection/set': ['content-script', 'extension-page'],
+  // 面板是扩展 origin 的 iframe，因此属于扩展页。
+  'panel/getSelection': ['extension-page'],
 };
 
 /** 从 browser.runtime.MessageSender 中抽取判定所需的最小字段。 */
@@ -132,6 +134,9 @@ export function parseRequestMessage(
       return { ok: true, value: { type } };
 
     case 'config/clearApiKey':
+      return { ok: true, value: { type } };
+
+    case 'panel/getSelection':
       return { ok: true, value: { type } };
 
     case 'selection/set': {

@@ -17,6 +17,7 @@ export const REQUEST_TYPES = [
   'config/saveApiKey',
   'config/clearApiKey',
   'selection/set',
+  'panel/getSelection',
 ] as const;
 
 export type RequestType = (typeof REQUEST_TYPES)[number];
@@ -62,7 +63,22 @@ export type RequestMessage =
   | SaveProviderRequest
   | SaveApiKeyRequest
   | ClearApiKeyRequest
-  | SelectionSetRequest;
+  | SelectionSetRequest
+  | PanelGetSelectionRequest;
+
+/**
+ * 面板（扩展 origin 的 iframe）取回当前标签页暂存的选区。
+ *
+ * 走后台而不是把文本塞进 iframe URL，避免网页正文出现在地址里。
+ */
+export interface PanelGetSelectionRequest {
+  type: 'panel/getSelection';
+}
+
+/** `panel/getSelection` 的响应数据。 */
+export interface PanelSelectionPayload {
+  selection: string | null;
+}
 
 /**
  * 设置状态快照——这是 UI 能拿到的全部配置信息。

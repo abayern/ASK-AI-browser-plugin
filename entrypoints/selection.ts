@@ -194,13 +194,13 @@ export default defineUnlistedScript(() => {
     const text = currentText;
     if (text === '') return;
 
+    // 先把选区交给后台暂存，面板随后按 tabId 取回。
+    // 不把正文塞进 iframe URL，避免网页内容出现在地址栏或历史记录里。
     void browser.runtime
       .sendMessage({ type: 'selection/set', payload: { text } })
       .then(() => {
-        button.textContent = `已记录 ${text.length} 字`;
-        setTimeout(() => {
-          hide();
-        }, 1200);
+        hide();
+        openPanel();
       })
       .catch(() => {
         button.textContent = '未能记录';
@@ -208,5 +208,79 @@ export default defineUnlistedScript(() => {
           hide();
         }, 1200);
       });
+  });
+
+  // ---- 面板 ----
+
+  let panelFrame: HTMLIFrameElement | null = null;
+  let panelWrap: HTMLDivElement | null = null;
+
+  function openPanel(): void {
+    // 已经打开时不重复注入。
+    if (panelFrame) {
+      panelFrame.focus();
+      return;
+    }
+
+    const wrap = document.createElement('div');
+    wrap.setAttribute(
+      'style',
+      [
+        'position: fixed',
+        'top: 16px',
+        'right: 16px',
+        'width: 400px',
+        'max-width: calc(100vw - 32px)',
+        'height: min(660px, calc(100vh - 32px))',
+        'pointer-events: auto',
+      ].join(';'),
+    );
+
+    const frame = document.createElement('iframe');
+    // 面板是本扩展的页面：与网页跨域隔离，网页脚本读不到面板内容。
+    // WXT 的 runtime 类型把 getURL 收窄成了仅接受已声明的 public 路径，
+    // 这里需要运行时的真实行为，因此做一次显式断言。
+    const runtimeWithUrl = browser.runtime as unknown as { getURL(path: string): string };
+    frame.src = runtimeWithUrl.getURL('/panel.html');
+    frame.title = '划词问 AI';
+    frame.setAttribute(
+      'style',
+      [
+        'width: 100%',
+        'height: 100%',
+        'border: 0',
+        'border-radius: 10px',
+        'background: #fafaf8',
+        'color-scheme: light',
+        'box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28)',
+      ].join(';'),
+    );
+
+    wrap.appendChild(frame);
+    shadow.appendChild(wrap);
+
+    panelWrap = wrap;
+    panelFrame = frame;
+  }
+
+  function closePanel(): void {
+    panelWrap?.remove();
+    panelWrap = null;
+    panelFrame = null;
+  }
+
+  // 面板内的「×」与 Esc 通过 postMessage 请求收起。
+  // 只接受来自我们自己那个 iframe 的消息：网页无法伪造 event.source。
+  window.addEventListener('message', (event) => {
+    if (!panelFrame || event.source !== panelFrame.contentWindow) return;
+
+    const data: unknown = event.data;
+    if (
+      typeof data === 'object' &&
+      data !== null &&
+      (data as { type?: unknown }).type === 'ask-ai-panel/close'
+    ) {
+      closePanel();
+    }
   });
 });

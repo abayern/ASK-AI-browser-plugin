@@ -92,6 +92,12 @@ export default defineBackground(() => {
         pendingSelections.set(tabId, message.payload.text);
         return { ok: true, data: { stored: true, length: message.payload.text.length } };
       }
+
+      case 'panel/getSelection': {
+        // 面板本身就在标签页里，用它的 tabId 取回该页暂存的选区。
+        const selection = typeof tabId === 'number' ? pendingSelections.get(tabId) : null;
+        return { ok: true, data: { selection } };
+      }
     }
   }
 
