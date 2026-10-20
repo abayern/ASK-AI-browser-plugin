@@ -28,7 +28,11 @@ const BUTTON_HEIGHT = 34;
  * - 不修改网页任何既有节点，只追加自己的一层。
  */
 export default defineUnlistedScript(() => {
-  if (document.getElementById(HOST_ID)) return;
+  // 扩展重新加载 / 更新后，页面里已注入的旧实例仍然挂在 DOM 上，
+  // 但它的 browser.runtime 上下文已经失效，点按钮必然失败。
+  // 这里不能「发现已存在就直接 return」——那样用户再点「在本页启用」
+  // 也救不回来，只能刷新页面。改为移除旧宿主，让新实例接管。
+  document.getElementById(HOST_ID)?.remove();
 
   // ---- UI ----
   const host = document.createElement('div');
@@ -269,14 +273,27 @@ export default defineUnlistedScript(() => {
     void browser.runtime
       .sendMessage({ type: 'selection/set', payload: { text } })
       .then(() => {
-        hide();
-        openPanel();
+        // 先尝试打开面板，成功后才收起按钮：
+        // 若 openPanel 抛错，至少按钮还在，可以把失败显示出来，
+        // 而不是「点了完全没反应」。
+        try {
+          openPanel();
+          hide();
+        } catch {
+          setLabel('打开失败');
+          setTimeout(() => {
+            hide();
+          }, 2000);
+        }
       })
-      .catch(() => {
-        setLabel('未能记录');
+      .catch((error: unknown) => {
+        // 扩展被重新加载/更新后，旧页面里的脚本会失去上下文，
+        // 这时必须让用户刷新页面才可能恢复——不要只说一句含糊的「失败」。
+        const text = error instanceof Error ? error.message : String(error);
+        setLabel(/context invalidated|receiving end does not exist/i.test(text) ? '请刷新本页' : '未能记录');
         setTimeout(() => {
           hide();
-        }, 1200);
+        }, 2000);
       });
   });
 
