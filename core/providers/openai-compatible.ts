@@ -127,35 +127,63 @@ function classifyTransportError(
   return new ProviderError('network_error', messageForCode('network_error'));
 }
 
-/** 消费 event-stream 响应体，逐段 yield 文本。 */
-async function* consumeEventStream(
+/**
+ * 流式响应的实际形态。
+ *
+ * 为什么不能只看 Content-Type：这个头由服务商自由填写，
+ * 中转站、自建网关、本地推理服务里「标着 application/json 却在按 SSE 分块发送」
+ * 非常普遍。逐个适配服务商不可维护，只能按**响应体的真实形态**判断。
+ */
+type StreamMode = 'unknown' | 'sse' | 'lines' | 'text';
+
+/**
+ * 消费响应体，边收边吐增量。
+ *
+ * 模式判定只在收到第一块非空白数据时做一次：
+ * - 以 `data:` / `event:` / `:` 开头 → SSE
+ * - 以 `{` / `[` 开头 → 逐行 JSON（NDJSON），同时兼容「整段是一个 JSON」
+ * - 其它 → 纯文本增量
+ *
+ * 结束判定：
+ * - SSE：`[DONE]` 或 finish_reason；两者都没收到却提前结束 → 报告断流
+ * - 逐行 JSON / 纯文本：连接关闭即是自然结束（这类实现本来就没有结束标记），
+ *   因此不报断流，否则会给正常回答误加一条警告
+ */
+async function* consumeResponse(
   body: ReadableStream<Uint8Array>,
+  contentType: string,
   classify: (error: unknown) => ProviderError,
 ): AsyncGenerator<ChatDelta, void, void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  const parser = new SseParser();
+  const sseParser = new SseParser();
 
-  let sawDone = false;
-  let sawFinishReason = false;
+  // 响应头已经明确是 SSE 时，跳过嗅探。
+  let mode: StreamMode = contentType.includes('text/event-stream') ? 'sse' : 'unknown';
 
-  const handle = (payloads: string[]): ChatDelta[] => {
+  let sniffBuffer = '';
+  let lineBuffer = '';
+  let rawBuffer = '';
+  let sawTerminator = false;
+  let emitted = false;
+
+  const handlePayloads = (payloads: string[]): ChatDelta[] => {
     const deltas: ChatDelta[] = [];
     for (const payload of payloads) {
       if (payload === '[DONE]') {
-        sawDone = true;
+        sawTerminator = true;
         continue;
       }
       const chunk = parseChunk(payload);
       if (!chunk) continue;
-      if (chunk.finishReason !== null) sawFinishReason = true;
+      if (chunk.finishReason !== null) sawTerminator = true;
       if (chunk.text.length > 0) deltas.push({ text: chunk.text });
     }
     return deltas;
   };
 
   try {
-    while (!sawDone) {
+    while (!sawTerminator) {
       let result: ReadableStreamReadResult<Uint8Array>;
       try {
         result = await reader.read();
@@ -165,11 +193,86 @@ async function* consumeEventStream(
 
       if (result.done) break;
 
-      const text = decoder.decode(result.value, { stream: true });
-      for (const delta of handle(parser.push(text))) yield delta;
+      let text = decoder.decode(result.value, { stream: true });
+      rawBuffer += text;
+
+      if (mode === 'unknown') {
+        sniffBuffer += text;
+        const trimmed = sniffBuffer.replace(/^\s+/, '');
+
+        // 还没收到有效字符：继续等下一块。
+        if (trimmed.length === 0) continue;
+
+        if (/^(?:data:|event:|:)/.test(trimmed)) mode = 'sse';
+        else if (trimmed.startsWith('{') || trimmed.startsWith('[')) mode = 'lines';
+        else if (contentType.includes('json')) {
+          // 声明是 JSON 但内容不是 JSON（例如网关返回的 HTML 错误页）：
+          // 仍按 JSON 处理，最终以「无法解析」收场，而不是把错误页当回答显示。
+          mode = 'lines';
+        } else mode = 'text';
+
+        // 把嗅探期间累积的内容整段交给对应解析器，一个字节都不丢。
+        text = sniffBuffer;
+        sniffBuffer = '';
+      }
+
+      if (mode === 'sse') {
+        for (const delta of handlePayloads(sseParser.push(text))) {
+          emitted = true;
+          yield delta;
+        }
+        continue;
+      }
+
+      if (mode === 'lines') {
+        lineBuffer += text;
+        let newlineIndex = lineBuffer.indexOf('\n');
+        while (newlineIndex !== -1) {
+          const line = lineBuffer.slice(0, newlineIndex).trim();
+          lineBuffer = lineBuffer.slice(newlineIndex + 1);
+          if (line !== '') {
+            for (const delta of handlePayloads([line])) {
+              emitted = true;
+              yield delta;
+            }
+          }
+          newlineIndex = lineBuffer.indexOf('\n');
+        }
+        continue;
+      }
+
+      // text：把增量原样交出去
+      if (text.length > 0) {
+        emitted = true;
+        yield { text };
+      }
     }
 
-    for (const delta of handle(parser.flush())) yield delta;
+    // ---- 收尾 ----
+    if (mode === 'sse') {
+      for (const delta of handlePayloads(sseParser.flush())) {
+        emitted = true;
+        yield delta;
+      }
+    } else if (mode === 'lines') {
+      if (lineBuffer.trim() !== '') {
+        for (const delta of handlePayloads([lineBuffer.trim()])) {
+          emitted = true;
+          yield delta;
+        }
+        lineBuffer = '';
+      }
+
+      // 整段就是一个 JSON（可能被格式化过、跨多行）时逐行解析不会有产出，
+      // 这时退回「整体解析」。
+      if (!emitted) {
+        const content = extractWholeContentFromText(rawBuffer);
+        if (content !== null && content.length > 0) {
+          emitted = true;
+          yield { text: content };
+        }
+      }
+    }
   } finally {
     // 无论正常结束还是被取消，都要释放读取锁。
     try {
@@ -179,32 +282,36 @@ async function* consumeEventStream(
     }
   }
 
-  // 只有确实没有收到结束标记时才算「断流」。
-  if (!sawDone && !sawFinishReason) {
+  // 只有 SSE 有明确的结束标记，需要判定断流。
+  if (mode === 'sse' && !sawTerminator) {
     throw new ProviderError('incomplete_stream', messageForCode('incomplete_stream'));
+  }
+
+  // 既没有内容、也没有任何结束标记，说明这一坨数据根本没被识别出来。
+  // 注意不能只判「有没有内容」：只回了 [DONE] 的空回答是合法的。
+  if (!emitted && !sawTerminator) {
+    throw new ProviderError('invalid_response', messageForCode('invalid_response'));
   }
 }
 
-/** 非 event-stream 的响应：整体当 JSON 解析，一次性给出内容。 */
-async function* consumeWholeJson(response: Response): AsyncGenerator<ChatDelta, void, void> {
-  const text = await readLimitedText(response);
-
+/**
+ * 把「整段是一个 JSON」的响应解析出完整内容。
+ *
+ * 返回 null 表示不是可识别的 JSON；遇到 error 对象直接抛出。
+ */
+function extractWholeContentFromText(text: string): string | null {
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    throw new ProviderError('invalid_response', messageForCode('invalid_response'));
+    return null;
   }
 
   if (isRecord(json) && isRecord(json.error)) {
     throw new ProviderError('server_error', messageForCode('server_error'));
   }
 
-  const content = extractWholeContent(json);
-  if (content === null) {
-    throw new ProviderError('invalid_response', messageForCode('invalid_response'));
-  }
-  if (content.length > 0) yield { text: content };
+  return extractWholeContent(json);
 }
 
 export function createOpenAiCompatibleAdapter(deps: AdapterDeps = {}): ProviderAdapter {
@@ -296,12 +403,9 @@ export function createOpenAiCompatibleAdapter(deps: AdapterDeps = {}): ProviderA
         const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
         const classify = (error: unknown) => classifyTransportError(error, timedOut, external);
 
-        if (contentType.includes('text/event-stream')) {
-          yield* consumeEventStream(response.body, classify);
-        } else {
-          // 有些「兼容」服务商忽略 stream 参数，直接返回完整 JSON。
-          yield* consumeWholeJson(response);
-        }
+        // 不按 Content-Type 分流：交给 consumeResponse 依据响应体的实际形态
+        // 决定是 SSE、逐行 JSON 还是纯文本，三种都边收边吐。
+        yield* consumeResponse(response.body, contentType, classify);
       } finally {
         clearTimeout(timer);
         external?.removeEventListener('abort', onExternalAbort);

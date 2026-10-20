@@ -313,3 +313,128 @@ describe('OpenAI-compatible 适配器 · 失败路径', () => {
     expect(called).toBe(false);
   });
 });
+
+/**
+ * 这一组针对的是「响应头不可信」的情况。
+ *
+ * 真实世界里大量兼容服务把流式响应的 Content-Type 标成 application/json，
+ * 若按响应头分流，就会退化成「等全部算完再一次性显示」——表现和
+ * 「不支持流式」完全一样。因此必须按响应体的实际形态判断。
+ */
+describe('OpenAI-compatible 适配器 · 响应形态自适应', () => {
+  /** 按块喂入，用来观察是否真的边收边吐。 */
+  async function collectDeltas(
+    request: ChatRequest,
+    fetchImpl: typeof fetch,
+  ): Promise<string[]> {
+    const adapter = createOpenAiCompatibleAdapter({ fetchImpl });
+    const deltas: string[] = [];
+    for await (const delta of adapter.streamChat(request)) {
+      deltas.push(delta.text);
+    }
+    return deltas;
+  }
+
+  function responseWith(
+    contentType: string,
+    chunks: string[],
+  ): Response {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    });
+    return new Response(body, { status: 200, headers: { 'content-type': contentType } });
+  }
+
+  it('Content-Type 标成 application/json，但响应体是 SSE 时仍然逐块流式', async () => {
+    const fetchImpl = (async () =>
+      responseWith('application/json; charset=utf-8', [
+        'data: {"choices":[{"delta":{"content":"逐"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"块"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ])) as unknown as typeof fetch;
+
+    const deltas = await collectDeltas(baseRequest(), fetchImpl);
+
+    // 关键断言：必须是多段，而不是一次性的一段
+    expect(deltas.length).toBeGreaterThan(1);
+    expect(deltas.join('')).toBe('逐块');
+  });
+
+  it('没有 Content-Type 时也能识别 SSE', async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"A"}}]}\n\n'));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    const fetchImpl = (async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
+
+    await expect(collect(baseRequest(), fetchImpl)).resolves.toBe('A');
+  });
+
+  it('逐行 JSON（NDJSON）按行流式输出', async () => {
+    const fetchImpl = (async () =>
+      responseWith('application/json', [
+        '{"choices":[{"delta":{"content":"一"}}]}\n',
+        '{"choices":[{"delta":{"content":"二"}}]}\n',
+        '{"choices":[{"delta":{"content":"三"},"finish_reason":"stop"}]}\n',
+      ])) as unknown as typeof fetch;
+
+    const deltas = await collectDeltas(baseRequest(), fetchImpl);
+    expect(deltas.length).toBeGreaterThan(1);
+    expect(deltas.join('')).toBe('一二三');
+  });
+
+  it('NDJSON 没有结束标记时不算断流（这类实现本就没有 [DONE]）', async () => {
+    const fetchImpl = (async () =>
+      responseWith('application/json', [
+        '{"choices":[{"delta":{"content":"完整"}}]}\n',
+      ])) as unknown as typeof fetch;
+
+    await expect(collect(baseRequest(), fetchImpl)).resolves.toBe('完整');
+  });
+
+  it('纯文本流按增量输出', async () => {
+    const fetchImpl = (async () =>
+      responseWith('text/plain', ['你', '好', '呀'])) as unknown as typeof fetch;
+
+    const deltas = await collectDeltas(baseRequest(), fetchImpl);
+    expect(deltas.join('')).toBe('你好呀');
+  });
+
+  it('声明 JSON 却返回 HTML 错误页时不会把错误页当回答显示', async () => {
+    const fetchImpl = (async () =>
+      responseWith('application/json', ['<html><body>502 Bad Gateway</body></html>'])) as unknown as typeof fetch;
+
+    await expect(collect(baseRequest(), fetchImpl)).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+  });
+
+  it('单个完整 JSON（无换行）仍能取到内容', async () => {
+    const fetchImpl = (async () =>
+      responseWith('application/json', [
+        JSON.stringify({ choices: [{ message: { content: '整段回答' } }] }),
+      ])) as unknown as typeof fetch;
+
+    await expect(collect(baseRequest(), fetchImpl)).resolves.toBe('整段回答');
+  });
+
+  it('SSE 首块被任意位置切开也不会丢字', async () => {
+    const fetchImpl = (async () =>
+      responseWith('application/json', [
+        'data: {"choices":[{"del',
+        'ta":{"content":"切"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ])) as unknown as typeof fetch;
+
+    await expect(collect(baseRequest(), fetchImpl)).resolves.toBe('切');
+  });
+});
+
