@@ -13,6 +13,7 @@ const SETTINGS: AppSettings = {
   },
   allowInsecureLocalBaseUrl: false,
   memoryEnabled: false,
+  pushPanelContent: false,
 };
 
 function createPort() {

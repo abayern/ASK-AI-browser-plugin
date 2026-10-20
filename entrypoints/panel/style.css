@@ -73,6 +73,13 @@ body {
   color: var(--muted);
 }
 
+/* 「收起」与「关闭」并排放在右上角 */
+.panel__actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
 .iconbtn {
   flex: none;
   width: 24px;
@@ -88,8 +95,7 @@ body {
 
 .iconbtn:hover {
   color: var(--ink);
-  border-color: var(--muted);
-}
+  border-color: var(--muted);}
 
 /* ---------- 引用文字 ---------- */
 

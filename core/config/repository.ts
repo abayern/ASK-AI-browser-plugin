@@ -65,6 +65,20 @@ export class SettingsRepository {
           ? allowInsecureLocalBaseUrl
           : current.allowInsecureLocalBaseUrl,
       memoryEnabled: current.memoryEnabled,
+      pushPanelContent: current.pushPanelContent,
+    });
+  }
+
+  /** 只更新面板停靠方式，保留其它设置。 */
+  async saveLayout(pushPanelContent: unknown): Promise<Result<AppSettings>> {
+    const current = await this.get();
+
+    return this.save({
+      provider: current.provider,
+      allowInsecureLocalBaseUrl: current.allowInsecureLocalBaseUrl,
+      memoryEnabled: current.memoryEnabled,
+      pushPanelContent:
+        typeof pushPanelContent === 'boolean' ? pushPanelContent : current.pushPanelContent,
     });
   }
 }

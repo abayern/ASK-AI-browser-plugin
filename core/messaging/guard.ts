@@ -26,6 +26,7 @@ const ORIGIN_POLICY: Record<RequestType, readonly MessageOrigin[]> = {
   'config/saveProvider': ['extension-page'],
   'config/saveApiKey': ['extension-page'],
   'config/clearApiKey': ['extension-page'],
+  'config/saveLayout': ['extension-page'],
   // 唯一对内容脚本开放的消息：只写一段受限文本，碰不到配置与 Key。
   'selection/set': ['content-script', 'extension-page'],
   // 面板是扩展 origin 的 iframe，因此属于扩展页。
@@ -152,6 +153,19 @@ export function parseRequestMessage(
       }
 
       return { ok: true, value: { type, payload: { text: trimmed } } };
+    }
+
+    case 'config/saveLayout': {
+      const payload = isRecord(raw.payload) ? raw.payload : null;
+      if (!payload) return reject('缺少 payload。');
+      if (typeof payload.pushPanelContent !== 'boolean') {
+        return reject('pushPanelContent 必须是布尔值。');
+      }
+
+      return {
+        ok: true,
+        value: { type, payload: { pushPanelContent: payload.pushPanelContent } },
+      };
     }
 
     case 'config/saveApiKey': {

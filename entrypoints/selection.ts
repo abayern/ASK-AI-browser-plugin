@@ -107,6 +107,40 @@ export default defineUnlistedScript(() => {
       box-shadow: 0 0 0 3px rgba(138, 180, 248, 0.2);
     }
 
+    /* 收起后贴在右侧的小标签：点它可以把面板展开回来 */
+    .ask-chip {
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 46px;
+      border: 0;
+      border-radius: 8px 0 0 8px;
+      background: #15181c;
+      color: #fafaf8;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      pointer-events: auto;
+      box-shadow: -2px 0 14px rgba(15, 18, 22, 0.26);
+      transition: background-color 120ms ease;
+    }
+
+    .ask-chip:hover {
+      background: #0b0e11;
+    }
+
+    .ask-chip:focus-visible {
+      outline: 2px solid #8ab4f8;
+      outline-offset: 2px;
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .ask-btn {
         transition: none;
@@ -135,6 +169,8 @@ export default defineUnlistedScript(() => {
   // ---- 状态 ----
   let currentText = '';
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 最近一次弹出按钮时的选区水平范围，用于决定面板落在哪一侧。 */
+  let lastAnchorRect: { left: number; right: number } | null = null;
 
   function setLabel(text: string): void {
     label.textContent = text;
@@ -147,6 +183,7 @@ export default defineUnlistedScript(() => {
 
   function show(text: string, anchorRect: DOMRect): void {
     currentText = text;
+    lastAnchorRect = { left: anchorRect.left, right: anchorRect.right };
     setLabel('问问 AI');
 
     // 先显示出来才能量到真实尺寸；字体、语言、缩放都会影响宽度，
@@ -266,18 +303,19 @@ export default defineUnlistedScript(() => {
     event.stopPropagation();
 
     const text = currentText;
+    const anchor = lastAnchorRect;
     if (text === '') return;
 
     // 先把选区交给后台暂存，面板随后按 tabId 取回。
     // 不把正文塞进 iframe URL，避免网页内容出现在地址栏或历史记录里。
     void browser.runtime
       .sendMessage({ type: 'selection/set', payload: { text } })
-      .then(() => {
+      .then((response: unknown) => {
         // 先尝试打开面板，成功后才收起按钮：
         // 若 openPanel 抛错，至少按钮还在，可以把失败显示出来，
         // 而不是「点了完全没反应」。
         try {
-          openPanel();
+          openPanel({ anchor, pushContent: readPushPreference(response) });
           hide();
         } catch {
           setLabel('打开失败');
@@ -289,25 +327,85 @@ export default defineUnlistedScript(() => {
       .catch((error: unknown) => {
         // 扩展被重新加载/更新后，旧页面里的脚本会失去上下文，
         // 这时必须让用户刷新页面才可能恢复——不要只说一句含糊的「失败」。
-        const text = error instanceof Error ? error.message : String(error);
-        setLabel(/context invalidated|receiving end does not exist/i.test(text) ? '请刷新本页' : '未能记录');
+        const message = error instanceof Error ? error.message : String(error);
+        setLabel(
+          /context invalidated|receiving end does not exist/i.test(message)
+            ? '请刷新本页'
+            : '未能记录',
+        );
         setTimeout(() => {
           hide();
         }, 2000);
       });
   });
 
+  /** 从 selection/set 的响应里取出面板停靠方式。 */
+  function readPushPreference(response: unknown): boolean {
+    if (typeof response !== 'object' || response === null) return false;
+    const envelope = response as { ok?: unknown; data?: unknown };
+    if (envelope.ok !== true) return false;
+    const data = envelope.data as { pushPanelContent?: unknown } | null | undefined;
+    return data?.pushPanelContent === true;
+  }
+
   // ---- 面板 ----
+
+  const PANEL_WIDTH = 400;
+  const PANEL_MARGIN = 16;
+  /** 挤压式停靠时给页面让出的宽度。 */
+  const PUSH_WIDTH = PANEL_WIDTH + PANEL_MARGIN * 2;
 
   let panelFrame: HTMLIFrameElement | null = null;
   let panelWrap: HTMLDivElement | null = null;
+  let restoreChip: HTMLButtonElement | null = null;
+  /** 本次打开是否使用挤压式停靠。 */
+  let pushRequested = false;
+  /** 挤压前 html 原本的 margin-right；null 表示当前没有挤压。 */
+  let previousMarginRight: string | null = null;
 
-  function openPanel(): void {
-    // 已经打开时不重复注入。
-    if (panelFrame) {
-      panelFrame.focus();
+  /**
+   * 让页面为面板让出空间。
+   *
+   * 只改 `html` 的 margin-right：这是改动最小、可逆的做法。
+   * 注意它无法移动 `position: fixed` 的元素（导航栏、挂件），
+   * 这类站点仍可能被盖住——所以这个开关默认关闭。
+   */
+  function applyPush(enabled: boolean): void {
+    const root = document.documentElement;
+
+    if (enabled) {
+      if (previousMarginRight === null) previousMarginRight = root.style.marginRight;
+      root.style.marginRight = `${PUSH_WIDTH}px`;
       return;
     }
+
+    if (previousMarginRight !== null) {
+      root.style.marginRight = previousMarginRight;
+      previousMarginRight = null;
+    }
+  }
+
+  /** 浮层模式下，面板落在选区的对侧，尽量不挡住正在读的地方。 */
+  function pickSide(anchor: { left: number; right: number } | null): 'left' | 'right' {
+    if (!anchor) return 'right';
+    const center = (anchor.left + anchor.right) / 2;
+    return center > window.innerWidth / 2 ? 'left' : 'right';
+  }
+
+  function openPanel(options: {
+    anchor: { left: number; right: number } | null;
+    pushContent: boolean;
+  }): void {
+    // 已经打开：从折叠态恢复，或把焦点给它。
+    if (panelFrame) {
+      expandPanel();
+      return;
+    }
+
+    // 挤压式只让出右侧空间，因此必须停靠右侧；
+    // 浮层则避开选区所在的一侧。
+    const side = options.pushContent ? 'right' : pickSide(options.anchor);
+    pushRequested = options.pushContent;
 
     const wrap = document.createElement('div');
     wrap.setAttribute(
@@ -315,8 +413,8 @@ export default defineUnlistedScript(() => {
       [
         'position: fixed',
         'top: 16px',
-        'right: 16px',
-        'width: 400px',
+        side === 'right' ? `right: ${PANEL_MARGIN}px` : `left: ${PANEL_MARGIN}px`,
+        `width: ${PANEL_WIDTH}px`,
         'max-width: calc(100vw - 32px)',
         'height: min(660px, calc(100vh - 32px))',
         'pointer-events: auto',
@@ -348,26 +446,77 @@ export default defineUnlistedScript(() => {
 
     panelWrap = wrap;
     panelFrame = frame;
+
+    applyPush(options.pushContent);
+  }
+
+  /** 收起为侧边小标签，把网页让出来。 */
+  function collapsePanel(): void {
+    if (!panelWrap) return;
+
+    panelWrap.style.display = 'none';
+    applyPush(false);
+    showChip();
+    panelFrame?.focus();
+  }
+
+  function expandPanel(): void {
+    if (!panelWrap) return;
+
+    panelWrap.style.display = 'block';
+    hideChip();
+    applyPush(pushRequested);
+    panelFrame?.focus();
+  }
+
+  function showChip(): void {
+    if (restoreChip) {
+      restoreChip.style.display = 'flex';
+      return;
+    }
+
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'ask-chip';
+    chip.textContent = 'AI';
+    chip.title = '展开划词问 AI';
+    chip.setAttribute('aria-label', '展开划词问 AI');
+    chip.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      expandPanel();
+    });
+
+    shadow.appendChild(chip);
+    restoreChip = chip;
+  }
+
+  function hideChip(): void {
+    restoreChip?.remove();
+    restoreChip = null;
   }
 
   function closePanel(): void {
     panelWrap?.remove();
     panelWrap = null;
     panelFrame = null;
+    hideChip();
+    applyPush(false);
   }
 
-  // 面板内的「×」与 Esc 通过 postMessage 请求收起。
+  // 面板内的「×」「收起」与 Esc 通过 postMessage 请求。
   // 只接受来自我们自己那个 iframe 的消息：网页无法伪造 event.source。
   window.addEventListener('message', (event) => {
     if (!panelFrame || event.source !== panelFrame.contentWindow) return;
 
     const data: unknown = event.data;
-    if (
-      typeof data === 'object' &&
-      data !== null &&
-      (data as { type?: unknown }).type === 'ask-ai-panel/close'
-    ) {
+    if (typeof data !== 'object' || data === null) return;
+
+    const type = (data as { type?: unknown }).type;
+    if (type === 'ask-ai-panel/close') {
       closePanel();
+    } else if (type === 'ask-ai-panel/collapse') {
+      collapsePanel();
     }
   });
 });

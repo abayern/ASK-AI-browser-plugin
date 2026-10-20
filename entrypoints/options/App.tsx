@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
 
 import { ApiKeyPanel } from '../../components/settings/ApiKeyPanel';
+import { PanelSettings } from '../../components/settings/PanelSettings';
 import { PrivacyNotice } from '../../components/settings/PrivacyNotice';
 import { ProviderForm, type ProviderFormValues } from '../../components/settings/ProviderForm';
 import { Section } from '../../components/settings/Section';
@@ -96,6 +97,22 @@ export default function App() {
     }
   }, []);
 
+  const handleLayoutSave = useCallback(async (pushPanelContent: boolean) => {
+    setPending(true);
+    setError(null);
+    setNotice(null);
+    try {
+      setStatus(await configClient.saveLayout(pushPanelContent));
+      setNotice(pushPanelContent ? '已开启挤压式停靠。' : '已切换为浮层面板。');
+      return true;
+    } catch (cause) {
+      setError(toDisplayMessage(cause));
+      return false;
+    } finally {
+      setPending(false);
+    }
+  }, []);
+
   const version = browser.runtime.getManifest().version;
 
   return (
@@ -153,7 +170,19 @@ export default function App() {
           </Section>
 
           <Section
-            label="03 / 边界"
+            label="03 / 显示"
+            title="面板如何出现"
+            description="面板默认浮在网页上，会盖住右侧一部分内容。想彻底不被遮挡可以打开挤压式停靠。"
+          >
+            <PanelSettings
+              pushPanelContent={status.pushPanelContent}
+              pending={pending}
+              onSave={handleLayoutSave}
+            />
+          </Section>
+
+          <Section
+            label="04 / 边界"
             title="隐私与数据"
             description="在把任何内容发出去之前，你应该知道它去哪、谁在处理。"
           >

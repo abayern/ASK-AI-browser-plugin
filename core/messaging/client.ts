@@ -55,4 +55,9 @@ export const configClient = {
   getSelection(): Promise<{ selection: string | null }> {
     return request<{ selection: string | null }>({ type: 'panel/getSelection' });
   },
+
+  /** 保存面板停靠方式（挤压式 / 浮层）。 */
+  saveLayout(pushPanelContent: boolean): Promise<ConfigStatus> {
+    return request<ConfigStatus>({ type: 'config/saveLayout', payload: { pushPanelContent } });
+  },
 };

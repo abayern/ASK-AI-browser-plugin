@@ -27,6 +27,14 @@ export interface AppSettings {
   allowInsecureLocalBaseUrl: boolean;
   /** 长期记忆总开关，默认关闭。关闭时不得读取或注入任何记忆。 */
   memoryEnabled: boolean;
+  /**
+   * 面板停靠方式：true 时页面右侧让出空间（挤压式），面板不再遮挡网页内容。
+   * false 时为浮层（可能遮住部分内容）。
+   *
+   * 默认 false：挤压式会改动网页布局，可能破坏固定定位的导航栏、全宽画布等
+   * 站点，必须由用户显式开启。
+   */
+  pushPanelContent: boolean;
 }
 
 /**

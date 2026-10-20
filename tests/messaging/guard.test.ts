@@ -133,6 +133,24 @@ describe('parseRequestMessage', () => {
     expect(serialized).not.toContain('tabId');
   });
 
+  it('config/saveLayout 只接受布尔值', () => {
+    const ok = parseRequestMessage({
+      type: 'config/saveLayout',
+      payload: { pushPanelContent: true },
+    });
+    expect(ok.ok).toBe(true);
+    if (ok.ok && ok.value.type === 'config/saveLayout') {
+      expect(ok.value.payload.pushPanelContent).toBe(true);
+    }
+
+    for (const bad of [{}, { pushPanelContent: 'yes' }, { pushPanelContent: 1 }]) {
+      expect(
+        parseRequestMessage({ type: 'config/saveLayout', payload: bad }).ok,
+        JSON.stringify(bad),
+      ).toBe(false);
+    }
+  });
+
   it('拒绝非对象输入', () => {
     for (const bad of [null, undefined, 'config/getStatus', 42, []]) {
       expect(parseRequestMessage(bad).ok, JSON.stringify(bad)).toBe(false);

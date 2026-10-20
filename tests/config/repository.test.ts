@@ -80,6 +80,22 @@ describe('SettingsRepository', () => {
     expect(accepted.ok).toBe(true);
   });
 
+  it('saveLayout 只改停靠方式，保留服务商等其它设置', async () => {
+    const repo = new SettingsRepository(new MemoryStore());
+
+    await repo.saveProvider({ providerName: 'A', baseUrl: 'https://a.com/v1', model: 'm1' });
+    const result = await repo.saveLayout(true);
+
+    expect(result.ok).toBe(true);
+    const current = await repo.get();
+    expect(current.pushPanelContent).toBe(true);
+    expect(current.provider.model).toBe('m1');
+
+    // 非布尔输入不应把值改坏
+    await repo.saveLayout('nope');
+    expect((await repo.get()).pushPanelContent).toBe(true);
+  });
+
   it('存储内容损坏时回落到默认配置', async () => {
     for (const corrupt of ['garbage', 42, { provider: 'nope' }, []]) {
       const store = new MemoryStore({ [STORAGE_KEYS.settings]: corrupt });

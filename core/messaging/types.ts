@@ -16,6 +16,7 @@ export const REQUEST_TYPES = [
   'config/saveProvider',
   'config/saveApiKey',
   'config/clearApiKey',
+  'config/saveLayout',
   'selection/set',
   'panel/getSelection',
 ] as const;
@@ -47,6 +48,12 @@ export interface ClearApiKeyRequest {
   type: 'config/clearApiKey';
 }
 
+/** 面板停靠方式：挤压页面（不遮挡）或浮层。 */
+export interface SaveLayoutRequest {
+  type: 'config/saveLayout';
+  payload: { pushPanelContent: boolean };
+}
+
 /**
  * Content Script 把选中文字交给后台暂存。
  *
@@ -63,6 +70,7 @@ export type RequestMessage =
   | SaveProviderRequest
   | SaveApiKeyRequest
   | ClearApiKeyRequest
+  | SaveLayoutRequest
   | SelectionSetRequest
   | PanelGetSelectionRequest;
 
@@ -90,6 +98,7 @@ export interface ConfigStatus {
   apiKey: ApiKeySummary;
   allowInsecureLocalBaseUrl: boolean;
   memoryEnabled: boolean;
+  pushPanelContent: boolean;
 }
 
 export type MessageErrorCode =

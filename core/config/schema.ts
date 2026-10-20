@@ -50,6 +50,7 @@ export const appSettingsSchema = z
     provider: providerConfigSchema,
     allowInsecureLocalBaseUrl: z.boolean(),
     memoryEnabled: z.boolean(),
+    pushPanelContent: z.boolean(),
   })
   .superRefine((value, ctx) => {
     const result = normalizeBaseUrl(value.provider.baseUrl, {
@@ -74,6 +75,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   allowInsecureLocalBaseUrl: false,
   memoryEnabled: false,
+  // 默认浮层：挤压式会改动网页布局，需用户显式开启。
+  pushPanelContent: false,
 };
 
 /**
@@ -99,6 +102,10 @@ function applyDefaults(input: unknown): unknown {
       typeof input.memoryEnabled === 'boolean'
         ? input.memoryEnabled
         : DEFAULT_SETTINGS.memoryEnabled,
+    pushPanelContent:
+      typeof input.pushPanelContent === 'boolean'
+        ? input.pushPanelContent
+        : DEFAULT_SETTINGS.pushPanelContent,
   };
 }
 
@@ -141,6 +148,7 @@ export function parseAppSettings(input: unknown): Result<AppSettings> {
       provider,
       allowInsecureLocalBaseUrl: settings.allowInsecureLocalBaseUrl,
       memoryEnabled: settings.memoryEnabled,
+      pushPanelContent: settings.pushPanelContent,
     },
   };
 }

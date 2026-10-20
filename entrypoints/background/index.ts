@@ -53,6 +53,7 @@ export default defineBackground(() => {
       apiKey,
       allowInsecureLocalBaseUrl: current.allowInsecureLocalBaseUrl,
       memoryEnabled: current.memoryEnabled,
+      pushPanelContent: current.pushPanelContent,
     };
   }
 
@@ -84,13 +85,29 @@ export default defineBackground(() => {
         return { ok: true, data: await readStatus() };
       }
 
+      case 'config/saveLayout': {
+        const saved = await settings.saveLayout(message.payload.pushPanelContent);
+        if (!saved.ok) return failure('validation_failed', saved.error.message);
+        return { ok: true, data: await readStatus() };
+      }
+
       case 'selection/set': {
         // 没有 tabId 说明不是来自某个标签页，无法归属，直接拒绝。
         if (typeof tabId !== 'number') {
           return failure('unauthorized_origin', '无法确定消息所属的标签页。');
         }
         pendingSelections.set(tabId, message.payload.text);
-        return { ok: true, data: { stored: true, length: message.payload.text.length } };
+
+        // 顺带把面板停靠方式带回去，省掉内容脚本再多问一次。
+        const current = await settings.get();
+        return {
+          ok: true,
+          data: {
+            stored: true,
+            length: message.payload.text.length,
+            pushPanelContent: current.pushPanelContent,
+          },
+        };
       }
 
       case 'panel/getSelection': {

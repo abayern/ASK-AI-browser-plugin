@@ -220,6 +220,11 @@ export default function App() {
     window.parent.postMessage({ type: 'ask-ai-panel/close' }, '*');
   }
 
+  /** 收起成侧边小标签，把网页让出来（面板不销毁，可再展开）。 */
+  function handleCollapse() {
+    window.parent.postMessage({ type: 'ask-ai-panel/collapse' }, '*');
+  }
+
   const truncatedSelection =
     selection !== null &&
     !selectionExpanded &&
@@ -232,15 +237,26 @@ export default function App() {
           <p className="panel__title">划词问 AI</p>
           {modelLabel ? <p className="panel__model">{modelLabel}</p> : null}
         </div>
-        <button
-          className="iconbtn"
-          type="button"
-          onClick={handleRequestClose}
-          aria-label="收起面板"
-          title="收起"
-        >
-          ×
-        </button>
+        <div className="panel__actions">
+          <button
+            className="iconbtn"
+            type="button"
+            onClick={handleCollapse}
+            aria-label="收起面板，让开网页"
+            title="收起（让开网页）"
+          >
+            ‒
+          </button>
+          <button
+            className="iconbtn"
+            type="button"
+            onClick={handleRequestClose}
+            aria-label="关闭面板"
+            title="关闭"
+          >
+            ×
+          </button>
+        </div>
       </header>
 
       {selection !== null ? (
