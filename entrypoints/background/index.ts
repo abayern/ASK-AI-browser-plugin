@@ -96,7 +96,7 @@ export default defineBackground(() => {
         if (typeof tabId !== 'number') {
           return failure('unauthorized_origin', '无法确定消息所属的标签页。');
         }
-        pendingSelections.set(tabId, message.payload.text);
+        pendingSelections.set(tabId, message.payload.text, message.payload.preset ?? null);
 
         // 顺带把面板停靠方式带回去，省掉内容脚本再多问一次。
         const current = await settings.get();
@@ -111,9 +111,17 @@ export default defineBackground(() => {
       }
 
       case 'panel/getSelection': {
-        // 面板本身就在标签页里，用它的 tabId 取回该页暂存的选区。
-        const selection = typeof tabId === 'number' ? pendingSelections.get(tabId) : null;
-        return { ok: true, data: { selection } };
+        // 面板本身就在标签页里，用它的 tabId 取回该页暂存的选区与预设动作。
+        if (typeof tabId !== 'number') {
+          return { ok: true, data: { selection: null, preset: null } };
+        }
+        return {
+          ok: true,
+          data: {
+            selection: pendingSelections.get(tabId),
+            preset: pendingSelections.getPreset(tabId),
+          },
+        };
       }
     }
   }

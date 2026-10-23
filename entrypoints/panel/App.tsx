@@ -14,8 +14,13 @@ interface Turn {
 /** 选区预览最多显示的高度（超出折叠）。 */
 const SELECTION_COLLAPSED_CHARS = 180;
 
+/** 「翻译」快捷动作使用的指令。 */
+const TRANSLATE_PROMPT =
+  '把这段文字翻译成中文；如果原文就是中文，则翻译成英文。只输出译文，不要解释。';
+
 export default function App() {
   const [selection, setSelection] = useState<string | null>(null);
+  const [preset, setPreset] = useState<string | null>(null);
   const [selectionExpanded, setSelectionExpanded] = useState(false);
   const [modelLabel, setModelLabel] = useState<string | null>(null);
 
@@ -31,6 +36,8 @@ export default function App() {
   const streamRef = useRef<ChatStream | null>(null);
   const bufferRef = useRef('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /** 快捷动作只自动触发一次，避免重渲染后重复计费。 */
+  const presetHandledRef = useRef(false);
 
   // 载入选区（只需一次）
   useEffect(() => {
@@ -39,7 +46,9 @@ export default function App() {
     async function loadSelection() {
       try {
         const selected = await configClient.getSelection();
-        if (active) setSelection(selected.selection);
+        if (!active) return;
+        setSelection(selected.selection);
+        setPreset(selected.preset);
       } catch {
         if (active) setSelection(null);
       }
@@ -187,6 +196,14 @@ export default function App() {
     },
     [busy, selection, turns],
   );
+
+  // 快捷动作：从工具栏点「翻译」进来时，选区就位后自动发起一次提问。
+  // 用 ref 保证只触发一次——否则每次重渲染都会再发一遍，白花钱。
+  useEffect(() => {
+    if (preset !== 'translate' || selection === null || presetHandledRef.current) return;
+    presetHandledRef.current = true;
+    send(TRANSLATE_PROMPT);
+  }, [preset, selection, send]);
 
   function handleStop() {
     streamRef.current?.abort();

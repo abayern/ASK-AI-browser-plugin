@@ -133,6 +133,25 @@ describe('parseRequestMessage', () => {
     expect(serialized).not.toContain('tabId');
   });
 
+  it('selection/set 只接受白名单内的预设动作', () => {
+    const ok = parseRequestMessage({
+      type: 'selection/set',
+      payload: { text: '文字', preset: 'translate' },
+    });
+    expect(ok.ok).toBe(true);
+    if (ok.ok && ok.value.type === 'selection/set') {
+      expect(ok.value.payload.preset).toBe('translate');
+    }
+
+    // 客户端不能自造任意指令（例如借助预设做提示注入）
+    for (const preset of ['delete-everything', '', 'TRANSLATE', 'system']) {
+      expect(
+        parseRequestMessage({ type: 'selection/set', payload: { text: '文字', preset } }).ok,
+        preset,
+      ).toBe(false);
+    }
+  });
+
   it('config/saveLayout 只接受布尔值', () => {
     const ok = parseRequestMessage({
       type: 'config/saveLayout',

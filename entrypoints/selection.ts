@@ -53,58 +53,123 @@ export default defineUnlistedScript(() => {
   // 在内联样式里写不出来，维护起来也更糟。
   const style = document.createElement('style');
   style.textContent = `
-    .ask-btn {
+    /* ---- 划词工具栏 ---- */
+
+    .ask-bar {
       position: fixed;
       display: none;
       align-items: center;
-      gap: 7px;
+      gap: 2px;
       height: ${BUTTON_HEIGHT}px;
-      padding: 0 13px 0 11px;
-      border: 0;
-      border-radius: 8px;
-      background: #15181c;
-      color: #fafaf8;
+      padding: 0 6px 0 4px;
+      border: 1px solid #e4e3de;
+      border-radius: 10px;
+      background: #ffffff;
+      color: #15181c;
       font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       font-size: 12.5px;
-      font-weight: 500;
       line-height: 1;
-      letter-spacing: 0.02em;
       white-space: nowrap;
-      cursor: pointer;
       pointer-events: auto;
-      box-shadow: 0 8px 24px rgba(15, 18, 22, 0.3), 0 1px 3px rgba(15, 18, 22, 0.2);
-      transition: background-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+      box-shadow: 0 8px 24px rgba(15, 18, 22, 0.16), 0 1px 3px rgba(15, 18, 22, 0.1);
     }
 
-    .ask-btn:hover {
-      background: #0b0e11;
-      transform: translateY(-1px);
-      box-shadow: 0 12px 28px rgba(15, 18, 22, 0.36), 0 1px 3px rgba(15, 18, 22, 0.22);
-    }
-
-    .ask-btn:active {
-      transform: translateY(0);
-      box-shadow: 0 6px 18px rgba(15, 18, 22, 0.3);
-    }
-
-    .ask-btn:focus-visible {
-      outline: 2px solid #8ab4f8;
-      outline-offset: 2px;
-    }
-
-    .ask-btn:disabled {
-      cursor: default;
-      opacity: 0.75;
-    }
-
-    /* 左侧的强调点：让按钮看起来是「本产品」的，而不是网页自带的控件 */
-    .ask-dot {
+    /* 拖动手柄：按住可以移动整条工具栏 */
+    .ask-handle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 24px;
+      border-radius: 5px;
+      color: #b6b2a8;
+      cursor: grab;
+      touch-action: none;
       flex: none;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #8ab4f8;
-      box-shadow: 0 0 0 3px rgba(138, 180, 248, 0.2);
+    }
+
+    .ask-handle:hover {
+      color: #69645c;
+      background: #f2f1ec;
+    }
+
+    .ask-handle:active {
+      cursor: grabbing;
+    }
+
+    .ask-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: #2b6cb0;
+      flex: none;
+    }
+
+    /* 用 CSS 画一个菱形标记，避免引入图片资源 */
+    .ask-logo::after {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      background: #ffffff;
+      transform: rotate(45deg);
+    }
+
+    .ask-divider {
+      width: 1px;
+      height: 16px;
+      margin: 0 4px;
+      background: #e4e3de;
+      flex: none;
+    }
+
+    .ask-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .ask-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 26px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #3a382f;
+      font: inherit;
+      cursor: pointer;
+      transition: background-color 120ms ease;
+    }
+
+    .ask-action:hover {
+      background: #f2f1ec;
+    }
+
+    .ask-action:active {
+      background: #e9e7e0;
+    }
+
+    .ask-action:focus-visible {
+      outline: 2px solid #2b6cb0;
+      outline-offset: 1px;
+    }
+
+    .ask-action svg {
+      flex: none;
+    }
+
+    /* 出错或已复制时的短暂提示，占用同一条工具栏 */
+    .ask-status {
+      display: none;
+      padding: 0 10px;
+      color: #69645c;
+      font-size: 12.5px;
     }
 
     /* ---- 面板容器 ---- */
@@ -197,54 +262,197 @@ export default defineUnlistedScript(() => {
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .ask-btn {
+      .ask-action {
         transition: none;
-      }
-      .ask-btn:hover {
-        transform: none;
       }
     }
   `;
 
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'ask-btn';
+  const SVG_NS = 'http://www.w3.org/2000/svg';
 
-  const dot = document.createElement('span');
-  dot.className = 'ask-dot';
+  function createIcon(paths: string[]): SVGSVGElement {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '15');
+    svg.setAttribute('height', '15');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.7');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
 
-  const label = document.createElement('span');
-  label.textContent = '问问 AI';
+    for (const d of paths) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      svg.appendChild(path);
+    }
+    return svg;
+  }
 
-  button.append(dot, label);
+  /** 左侧六点拖动手柄（用 SVG 画，避免字体渲染差异）。 */
+  function createGripDots(): SVGSVGElement {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('aria-hidden', 'true');
 
-  shadow.append(style, button);
+    const points = [
+      [9, 7],
+      [15, 7],
+      [9, 12],
+      [15, 12],
+      [9, 17],
+      [15, 17],
+    ];
+
+    for (const [cx, cy] of points) {
+      const dot = document.createElementNS(SVG_NS, 'circle');
+      dot.setAttribute('cx', String(cx));
+      dot.setAttribute('cy', String(cy));
+      dot.setAttribute('r', '1.5');
+      svg.appendChild(dot);
+    }
+    return svg;
+  }
+
+  const bar = document.createElement('div');
+  bar.className = 'ask-bar';
+
+  const handle = document.createElement('div');
+  handle.className = 'ask-handle';
+  handle.title = '拖动移动工具栏';
+  handle.setAttribute('role', 'button');
+  handle.setAttribute('aria-label', '拖动移动工具栏');
+  handle.appendChild(createGripDots());
+
+  const logo = document.createElement('span');
+  logo.className = 'ask-logo';
+  logo.setAttribute('aria-hidden', 'true');
+
+  const divider = document.createElement('span');
+  divider.className = 'ask-divider';
+
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'ask-actions';
+
+  const statusEl = document.createElement('span');
+  statusEl.className = 'ask-status';
+
+  function createAction(
+    labelText: string,
+    icon: SVGSVGElement,
+    onActivate: () => void,
+  ): HTMLButtonElement {
+    const actionButton = document.createElement('button');
+    actionButton.type = 'button';
+    actionButton.className = 'ask-action';
+    actionButton.appendChild(icon);
+
+    const text = document.createElement('span');
+    text.textContent = labelText;
+    actionButton.appendChild(text);
+
+    // 按下时阻止页面逻辑把工具栏收起，否则点击还没完成就被隐藏了。
+    actionButton.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    actionButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onActivate();
+    });
+
+    return actionButton;
+  }
+
+  const askAction = createAction(
+    '问问 AI',
+    createIcon(['M12 3.5l1.9 4.9 4.6 1.6-4.6 1.6L12 16.5l-1.9-4.9L5.5 10l4.6-1.6z']),
+    () => {
+      void openSelectionPanel(null);
+    },
+  );
+
+  const translateAction = createAction(
+    '翻译',
+    createIcon([
+      'M12 3a9 9 0 100 18 9 9 0 000-18z',
+      'M3 12h18',
+      'M12 3c2.4 2.6 2.4 15.4 0 18',
+      'M12 3c-2.4 2.6-2.4 15.4 0 18',
+    ]),
+    () => {
+      void openSelectionPanel('translate');
+    },
+  );
+
+  const copyAction = createAction(
+    '复制',
+    createIcon([
+      'M8.5 8.5h9A1.5 1.5 0 0119 10v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 017 19v-9a1.5 1.5 0 011.5-1.5z',
+      'M6 15.5H5A1.5 1.5 0 013.5 14V5A1.5 1.5 0 015 3.5h9A1.5 1.5 0 0115.5 5v1',
+    ]),
+    () => {
+      void copySelectedText();
+    },
+  );
+
+  actionsRow.append(askAction, translateAction, copyAction);
+  bar.append(handle, logo, divider, actionsRow, statusEl);
+
+  shadow.append(style, bar);
   document.documentElement.appendChild(host);
 
   // ---- 状态 ----
   let currentText = '';
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
-  /** 最近一次弹出按钮时的选区水平范围，用于决定面板落在哪一侧。 */
+  let statusTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 最近一次弹出工具栏时的选区水平范围，用于决定面板落在哪一侧。 */
   let lastAnchorRect: { left: number; right: number } | null = null;
 
-  function setLabel(text: string): void {
-    label.textContent = text;
+  /** 用一条状态提示暂时替换动作按钮（已复制 / 打开失败 等）。 */
+  function flashStatus(message: string): void {
+    statusEl.textContent = message;
+    statusEl.style.display = 'block';
+    actionsRow.style.display = 'none';
+
+    if (statusTimer) clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => {
+      statusEl.style.display = 'none';
+      actionsRow.style.display = 'flex';
+      statusTimer = null;
+    }, 1600);
+  }
+
+  function resetActions(): void {
+    if (statusTimer) {
+      clearTimeout(statusTimer);
+      statusTimer = null;
+    }
+    statusEl.style.display = 'none';
+    actionsRow.style.display = 'flex';
   }
 
   function hide(): void {
-    button.style.display = 'none';
+    bar.style.display = 'none';
     currentText = '';
   }
 
   function show(text: string, anchorRect: DOMRect): void {
     currentText = text;
     lastAnchorRect = { left: anchorRect.left, right: anchorRect.right };
-    setLabel('问问 AI');
+
+    // 上一次可能停在「已复制」之类的提示态，这里复原动作按钮。
+    resetActions();
 
     // 先显示出来才能量到真实尺寸；字体、语言、缩放都会影响宽度，
-    // 用实测值定位比写死常量更稳，否则按钮不会真正居中。
-    button.style.display = 'flex';
-    const measured = button.getBoundingClientRect();
+    // 用实测值定位比写死常量更稳，否则工具栏不会真正居中。
+    bar.style.display = 'flex';
+    const measured = bar.getBoundingClientRect();
 
     const placement = computeButtonPosition(
       {
@@ -260,8 +468,8 @@ export default defineUnlistedScript(() => {
       },
     );
 
-    button.style.left = `${placement.left}px`;
-    button.style.top = `${placement.top}px`;
+    bar.style.left = `${placement.left}px`;
+    bar.style.top = `${placement.top}px`;
   }
 
   /** 读取当前选区；不满足条件时返回 null。 */
@@ -346,52 +554,103 @@ export default defineUnlistedScript(() => {
     true,
   );
 
-  // ---- 点击 ----
-  button.addEventListener('mousedown', (event) => {
-    // 防止按下时被上面的 mousedown 处理器收起
-    event.preventDefault();
-    event.stopPropagation();
-  });
+  // ---- 动作 ----
 
-  button.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-
+  /**
+   * 打开面板。`preset` 为快捷动作（目前只有翻译），
+   * 面板拿到后会据此自动发起一次提问。
+   */
+  async function openSelectionPanel(preset: 'translate' | null): Promise<void> {
     const text = currentText;
     const anchor = lastAnchorRect;
     if (text === '') return;
 
     // 先把选区交给后台暂存，面板随后按 tabId 取回。
     // 不把正文塞进 iframe URL，避免网页内容出现在地址栏或历史记录里。
-    void browser.runtime
-      .sendMessage({ type: 'selection/set', payload: { text } })
-      .then((response: unknown) => {
-        // 先尝试打开面板，成功后才收起按钮：
-        // 若 openPanel 抛错，至少按钮还在，可以把失败显示出来，
-        // 而不是「点了完全没反应」。
-        try {
-          openPanel({ anchor, pushContent: readPushPreference(response) });
-          hide();
-        } catch {
-          setLabel('打开失败');
-          setTimeout(() => {
-            hide();
-          }, 2000);
-        }
-      })
-      .catch((error: unknown) => {
-        // 扩展被重新加载/更新后，旧页面里的脚本会失去上下文，
-        // 这时必须让用户刷新页面才可能恢复——不要只说一句含糊的「失败」。
-        const message = error instanceof Error ? error.message : String(error);
-        setLabel(
-          /context invalidated|receiving end does not exist/i.test(message)
-            ? '请刷新本页'
-            : '未能记录',
-        );
-        setTimeout(() => {
-          hide();
-        }, 2000);
+    try {
+      const response: unknown = await browser.runtime.sendMessage({
+        type: 'selection/set',
+        payload: { text, ...(preset === null ? {} : { preset }) },
       });
+
+      // 先尝试打开面板，成功后才收起工具栏：
+      // 若 openPanel 抛错，至少工具栏还在，可以把失败显示出来，
+      // 而不是「点了完全没反应」。
+      openPanel({ anchor, pushContent: readPushPreference(response) });
+      hide();
+    } catch (error: unknown) {
+      // 扩展被重新加载/更新后，旧页面里的脚本会失去上下文，
+      // 这时必须让用户刷新页面才可能恢复——不要只说一句含糊的「失败」。
+      const message = error instanceof Error ? error.message : String(error);
+      flashStatus(
+        /context invalidated|receiving end does not exist/i.test(message)
+          ? '请刷新本页'
+          : '打开失败',
+      );
+    }
+  }
+
+  /** 复制选中文字，不调用模型。 */
+  async function copySelectedText(): Promise<void> {
+    const text = currentText;
+    if (text === '') return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      flashStatus('已复制');
+      return;
+    } catch {
+      // 部分站点/权限状态下 clipboard API 不可用，退回旧办法。
+    }
+
+    try {
+      const helper = document.createElement('textarea');
+      helper.value = text;
+      helper.setAttribute('readonly', '');
+      helper.style.cssText = 'position:fixed;top:-9999px;opacity:0';
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand('copy');
+      helper.remove();
+      flashStatus('已复制');
+    } catch {
+      flashStatus('复制失败');
+    }
+  }
+
+  // ---- 拖动工具栏 ----
+
+  handle.addEventListener('pointerdown', (event: PointerEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = bar.getBoundingClientRect();
+    // 拖动期间统一用 left/top，避免与初始定位方式混用导致跳位。
+    bar.style.left = `${rect.left}px`;
+    bar.style.top = `${rect.top}px`;
+    bar.style.display = 'flex';
+
+    handle.setPointerCapture(event.pointerId);
+
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const maxLeft = Math.max(0, window.innerWidth - rect.width);
+      const maxTop = Math.max(0, window.innerHeight - rect.height);
+      bar.style.left = `${Math.min(Math.max(moveEvent.clientX - offsetX, 0), maxLeft)}px`;
+      bar.style.top = `${Math.min(Math.max(moveEvent.clientY - offsetY, 0), maxTop)}px`;
+    };
+
+    const finish = () => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', finish);
+      handle.removeEventListener('pointercancel', finish);
+    };
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', finish);
   });
 
   /** 从 selection/set 的响应里取出面板停靠方式。 */

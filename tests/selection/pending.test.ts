@@ -91,4 +91,26 @@ describe('PendingSelectionStore', () => {
     expect(store.get(1)).toBeNull();
     expect(store.get(2)).toBe('fresh');
   });
+
+  it('记录并取回快捷动作预设', () => {
+    const { store } = createStore();
+    store.set(1, '一段文字', 'translate');
+
+    expect(store.get(1)).toBe('一段文字');
+    expect(store.getPreset(1)).toBe('translate');
+  });
+
+  it('未指定预设时预设为 null', () => {
+    const { store } = createStore();
+    store.set(1, '一段文字');
+    expect(store.getPreset(1)).toBeNull();
+  });
+
+  it('预设随 TTL 一起失效', () => {
+    const { store, advance } = createStore();
+    store.set(1, '一段文字', 'translate');
+    advance(5_000);
+
+    expect(store.getPreset(1)).toBeNull();
+  });
 });

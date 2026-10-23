@@ -13,6 +13,8 @@
 
 export interface PendingSelection {
   text: string;
+  /** 快捷动作预设（例如翻译）；面板据此自动发起一次提问。 */
+  preset: string | null;
   updatedAt: number;
 }
 
@@ -30,7 +32,7 @@ export class PendingSelectionStore {
   }
 
   /** 暂存某个标签页的最新选区；空内容等价于清除。 */
-  set(tabId: number, text: string): void {
+  set(tabId: number, text: string, preset: string | null = null): void {
     const trimmed = text.trim();
     if (trimmed === '') {
       this.entries.delete(tabId);
@@ -38,12 +40,22 @@ export class PendingSelectionStore {
     }
     this.entries.set(tabId, {
       text: trimmed.slice(0, PENDING_SELECTION_MAX_CHARS),
+      preset,
       updatedAt: this.now(),
     });
   }
 
   /** 取回未过期的选区；过期或不存在返回 null。 */
   get(tabId: number): string | null {
+    return this.readEntry(tabId)?.text ?? null;
+  }
+
+  /** 取回本次选区的快捷动作预设；没有则返回 null。 */
+  getPreset(tabId: number): string | null {
+    return this.readEntry(tabId)?.preset ?? null;
+  }
+
+  private readEntry(tabId: number): PendingSelection | null {
     const entry = this.entries.get(tabId);
     if (!entry) return null;
 
@@ -51,7 +63,7 @@ export class PendingSelectionStore {
       this.entries.delete(tabId);
       return null;
     }
-    return entry.text;
+    return entry;
   }
 
   clear(tabId: number): void {

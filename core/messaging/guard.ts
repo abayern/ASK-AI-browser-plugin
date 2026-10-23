@@ -152,7 +152,17 @@ export function parseRequestMessage(
         return reject(`选中文字不能超过 ${LIMITS.selectionMaxChars} 个字符。`);
       }
 
-      return { ok: true, value: { type, payload: { text: trimmed } } };
+      // 预设动作按白名单校验：客户端不能自造任意指令塞给面板。
+      let preset: string | undefined;
+      if (payload.preset !== undefined) {
+        if (payload.preset !== 'translate') return reject('未知的预设动作。');
+        preset = payload.preset;
+      }
+
+      return {
+        ok: true,
+        value: { type, payload: { text: trimmed, ...(preset === undefined ? {} : { preset }) } },
+      };
     }
 
     case 'config/saveLayout': {

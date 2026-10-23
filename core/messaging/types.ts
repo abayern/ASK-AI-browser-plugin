@@ -62,7 +62,11 @@ export interface SaveLayoutRequest {
  */
 export interface SelectionSetRequest {
   type: 'selection/set';
-  payload: { text: string };
+  payload: {
+    text: string;
+    /** 快捷动作预设（目前只有 'translate'）；面板据此自动发起一次提问。 */
+    preset?: string;
+  };
 }
 
 export type RequestMessage =
@@ -86,6 +90,8 @@ export interface PanelGetSelectionRequest {
 /** `panel/getSelection` 的响应数据。 */
 export interface PanelSelectionPayload {
   selection: string | null;
+  /** 快捷动作预设；无则为 null。 */
+  preset: string | null;
 }
 
 /**

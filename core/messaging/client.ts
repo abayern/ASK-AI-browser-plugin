@@ -51,9 +51,11 @@ export const configClient = {
     return request<ConfigStatus>({ type: 'config/clearApiKey' });
   },
 
-  /** 面板启动时取回当前标签页暂存的选区。 */
-  getSelection(): Promise<{ selection: string | null }> {
-    return request<{ selection: string | null }>({ type: 'panel/getSelection' });
+  /** 面板启动时取回当前标签页暂存的选区（含快捷动作预设）。 */
+  getSelection(): Promise<{ selection: string | null; preset: string | null }> {
+    return request<{ selection: string | null; preset: string | null }>({
+      type: 'panel/getSelection',
+    });
   },
 
   /** 保存面板停靠方式（挤压式 / 浮层）。 */
