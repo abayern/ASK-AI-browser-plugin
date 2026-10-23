@@ -107,6 +107,61 @@ export default defineUnlistedScript(() => {
       box-shadow: 0 0 0 3px rgba(138, 180, 248, 0.2);
     }
 
+    /* ---- 面板容器 ---- */
+
+    .ask-panel {
+      display: flex;
+      flex-direction: column;
+      border-radius: 10px;
+      background: #fafaf8;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(15, 18, 22, 0.28);
+    }
+
+    /* 拖动过程中避免顺手选中面板外的网页文字 */
+    .ask-panel--dragging {
+      user-select: none;
+    }
+
+    /*
+     * 顶部拖动手柄。
+     * 为什么由页面侧渲染：面板内容在 iframe 里，iframe 内的指针事件
+     * 不会传给父页面，因此「拖动整窗」只能由页面侧接收指针来驱动。
+     */
+    .ask-grip {
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 16px;
+      background: #fafaf8;
+      border-bottom: 1px solid #e4e3de;
+      cursor: grab;
+      touch-action: none;
+      pointer-events: auto;
+    }
+
+    .ask-grip:active {
+      cursor: grabbing;
+    }
+
+    .ask-grip__pill {
+      width: 36px;
+      height: 4px;
+      border-radius: 2px;
+      background: #d8d6cf;
+    }
+
+    .ask-frame {
+      flex: 1 1 auto;
+      min-height: 0;
+      width: 100%;
+      display: block;
+      border: 0;
+      background: #fafaf8;
+      color-scheme: light;
+    }
+
     /* 收起后贴在右侧的小标签：点它可以把面板展开回来 */
     .ask-chip {
       position: fixed;
@@ -392,6 +447,9 @@ export default defineUnlistedScript(() => {
     return center > window.innerWidth / 2 ? 'left' : 'right';
   }
 
+  /** 拖动后的位置；null 表示还没被拖动过，按对侧规则落位。 */
+  let panelPosition: { left: number; top: number } | null = null;
+
   function openPanel(options: {
     anchor: { left: number; right: number } | null;
     pushContent: boolean;
@@ -407,13 +465,15 @@ export default defineUnlistedScript(() => {
     const side = options.pushContent ? 'right' : pickSide(options.anchor);
     pushRequested = options.pushContent;
 
+    // 挤压式是固定停靠，不需要拖动；只有浮层模式装拖动手柄。
+    const draggable = !options.pushContent;
+
     const wrap = document.createElement('div');
+    wrap.className = draggable ? 'ask-panel' : 'ask-panel ask-panel--docked';
     wrap.setAttribute(
       'style',
       [
         'position: fixed',
-        'top: 16px',
-        side === 'right' ? `right: ${PANEL_MARGIN}px` : `left: ${PANEL_MARGIN}px`,
         `width: ${PANEL_WIDTH}px`,
         'max-width: calc(100vw - 32px)',
         'height: min(660px, calc(100vh - 32px))',
@@ -421,33 +481,103 @@ export default defineUnlistedScript(() => {
       ].join(';'),
     );
 
+    if (draggable) {
+      const grip = document.createElement('div');
+      grip.className = 'ask-grip';
+      grip.title = '拖动调整位置';
+      grip.setAttribute('role', 'button');
+      grip.setAttribute('aria-label', '拖动调整面板位置');
+
+      const pill = document.createElement('span');
+      pill.className = 'ask-grip__pill';
+      grip.appendChild(pill);
+
+      grip.addEventListener('pointerdown', startDrag);
+      wrap.appendChild(grip);
+    }
+
     const frame = document.createElement('iframe');
+    frame.className = 'ask-frame';
     // 面板是本扩展的页面：与网页跨域隔离，网页脚本读不到面板内容。
     // WXT 的 runtime 类型把 getURL 收窄成了仅接受已声明的 public 路径，
     // 这里需要运行时的真实行为，因此做一次显式断言。
     const runtimeWithUrl = browser.runtime as unknown as { getURL(path: string): string };
     frame.src = runtimeWithUrl.getURL('/panel.html');
     frame.title = '划词问 AI';
-    frame.setAttribute(
-      'style',
-      [
-        'width: 100%',
-        'height: 100%',
-        'border: 0',
-        'border-radius: 10px',
-        'background: #fafaf8',
-        'color-scheme: light',
-        'box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28)',
-      ].join(';'),
-    );
 
     wrap.appendChild(frame);
+
+    // 位置：拖动过就沿用上次位置；否则贴在选区对侧。
+    if (draggable && panelPosition) {
+      wrap.style.left = `${panelPosition.left}px`;
+      wrap.style.top = `${panelPosition.top}px`;
+    } else {
+      wrap.style.top = `${PANEL_MARGIN}px`;
+      if (side === 'right') {
+        wrap.style.right = `${PANEL_MARGIN}px`;
+      } else {
+        wrap.style.left = `${PANEL_MARGIN}px`;
+      }
+    }
+
     shadow.appendChild(wrap);
 
     panelWrap = wrap;
     panelFrame = frame;
 
     applyPush(options.pushContent);
+  }
+
+  /**
+   * 按住顶部手柄拖动整窗。
+   *
+   * 指针捕获必须设在**页面侧**的手柄上：iframe 内部的指针事件不会冒泡
+   * 到父页面，所以拖动只能由页面侧驱动。
+   */
+  function startDrag(event: PointerEvent): void {
+    const wrap = panelWrap;
+    const grip = event.currentTarget;
+    if (!wrap || !(grip instanceof HTMLElement)) return;
+
+    event.preventDefault();
+
+    const rect = wrap.getBoundingClientRect();
+
+    // 拖动期间统一用 left/top 定位，避免 right 与 left 同时存在导致跳位。
+    wrap.style.left = `${rect.left}px`;
+    wrap.style.top = `${rect.top}px`;
+    wrap.style.right = 'auto';
+    wrap.classList.add('ask-panel--dragging');
+
+    grip.setPointerCapture(event.pointerId);
+
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const maxLeft = Math.max(0, window.innerWidth - rect.width);
+      const maxTop = Math.max(0, window.innerHeight - rect.height);
+      const left = Math.min(Math.max(moveEvent.clientX - offsetX, 0), maxLeft);
+      const top = Math.min(Math.max(moveEvent.clientY - offsetY, 0), maxTop);
+
+      // 始终完整留在视口内，避免被拖到屏幕外再也抓不回来。
+      wrap.style.left = `${left}px`;
+      wrap.style.top = `${top}px`;
+    };
+
+    const finish = () => {
+      grip.removeEventListener('pointermove', onMove);
+      grip.removeEventListener('pointerup', finish);
+      grip.removeEventListener('pointercancel', finish);
+      wrap.classList.remove('ask-panel--dragging');
+
+      const current = wrap.getBoundingClientRect();
+      panelPosition = { left: current.left, top: current.top };
+    };
+
+    grip.addEventListener('pointermove', onMove);
+    grip.addEventListener('pointerup', finish);
+    grip.addEventListener('pointercancel', finish);
   }
 
   /** 收起为侧边小标签，把网页让出来。 */
@@ -463,7 +593,9 @@ export default defineUnlistedScript(() => {
   function expandPanel(): void {
     if (!panelWrap) return;
 
-    panelWrap.style.display = 'block';
+    // 置空而不是 'block'：容器是靠 CSS 类做 flex 纵向布局的，
+    // 写成 block 会让 iframe 失去高度。
+    panelWrap.style.display = '';
     hideChip();
     applyPush(pushRequested);
     panelFrame?.focus();
@@ -518,5 +650,19 @@ export default defineUnlistedScript(() => {
     } else if (type === 'ask-ai-panel/collapse') {
       collapsePanel();
     }
+  });
+
+  // 视口变小后，已拖出边界的面板要拉回来，否则会有一半在屏幕外。
+  window.addEventListener('resize', () => {
+    if (!panelWrap || !panelPosition) return;
+
+    const rect = panelWrap.getBoundingClientRect();
+    const left = Math.min(panelPosition.left, Math.max(0, window.innerWidth - rect.width));
+    const top = Math.min(panelPosition.top, Math.max(0, window.innerHeight - rect.height));
+
+    panelPosition = { left, top };
+    panelWrap.style.left = `${left}px`;
+    panelWrap.style.top = `${top}px`;
+    panelWrap.style.right = 'auto';
   });
 });
